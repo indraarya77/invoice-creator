@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common Helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isStateValid(data) {
+      return data.keys().size() > 0;
+    }
+
+    // Invoices
+    match /invoices/{invoiceId} {
+      allow read, write: if isValidId(invoiceId);
+    }
+
+    // Customers
+    match /customers/{customerId} {
+      allow read, write: if isValidId(customerId);
+    }
+
+    // Services Catalog
+    match /services/{serviceId} {
+      allow read, write: if isValidId(serviceId);
+    }
+
+    // Sender Info
+    match /senderInfo/{document} {
+      allow read, write: if true;
+    }
+  }
+}

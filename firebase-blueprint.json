@@ -1,0 +1,86 @@
+{
+  "entities": {
+    "Invoice": {
+      "title": "Invoice",
+      "description": "An invoice generated for a customer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "billingAddress": { "type": "string" },
+        "issueDate": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "paymentTerms": { "type": "string" },
+        "discount": { "type": "number" },
+        "taxRate": { "type": "number" },
+        "notes": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "sent", "paid"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "subtotal": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "total": { "type": "number" }
+      },
+      "required": ["id", "invoiceNumber", "customerName", "status", "total"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "A customer record for client billing and address fields",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "billingAddress": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Service": {
+      "title": "Service Catalog Item",
+      "description": "A standard service template item that can be quickly added to invoices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "defaultQty": { "type": "number" },
+        "defaultUnit": { "type": "string" },
+        "defaultCost": { "type": "number" }
+      },
+      "required": ["id", "name", "defaultCost"]
+    },
+    "SenderInfo": {
+      "title": "Sender Information",
+      "description": "Information about the professional design studio or user profile",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string" },
+        "address": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "bankName": { "type": "string" },
+        "bankAccountName": { "type": "string" },
+        "bankAccountNumber": { "type": "string" }
+      },
+      "required": ["companyName", "address"]
+    }
+  },
+  "firestore": {
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "User created invoices collection"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Client registry directory"
+    },
+    "/services/{serviceId}": {
+      "schema": "Service",
+      "description": "Pre-configured service items catalog"
+    },
+    "/senderInfo/default": {
+      "schema": "SenderInfo",
+      "description": "The user corporate profile identity setup"
+    }
+  }
+}

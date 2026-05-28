@@ -1,0 +1,6 @@
+{
+  "name": "Invoice Creator",
+  "description": "A high-fidelity interactive invoice creator with real-time calculations, dynamic draft saving, and real-time print preview, mimicking professional design standards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
