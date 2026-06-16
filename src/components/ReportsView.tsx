@@ -35,20 +35,194 @@ export default function ReportsView({ invoices, customers }: ReportsViewProps) {
   const totalTaxCollected = invoices.filter(inv => inv.status === 'paid').reduce((sum, inv) => sum + inv.taxAmount, 0);
   const totalDiscountGiven = invoices.reduce((sum, inv) => sum + inv.discount, 0);
 
-  // Triggers window CSV download
-  const handleExportCSV = () => {
-    let csvContent = 'data:text/csv;charset=utf-8,';
-    csvContent += 'Client,Invoices Count,Paid Amount,Pending Amount,Total Billed\n';
+  // Triggers window Excel download using styled HTML sheet with inline CSS that Microsoft Excel interprets as a beautifully designed table
+  const handleExportExcel = () => {
+    let htmlContent = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<style>
+  /* Reset and typography style matching website UI */
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    margin: 24px;
+    background-color: #ffffff;
+    color: #303846;
+  }
+  
+  /* Laporan Header */
+  .report-header {
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #eff1f4;
+  }
+  .report-title {
+    font-size: 16pt;
+    font-weight: bold;
+    color: #121212;
+    margin: 0 0 4px 0;
+  }
+  .report-subtitle {
+    font-size: 9.5pt;
+    color: #5d6b82;
+    margin: 0;
+  }
+  
+  /* Table styling matching premium UI */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-top: 10px;
+    border: 1px solid #eff1f4;
+  }
+  
+  /* Table Headers styling */
+  th {
+    background-color: #f7f8fa;
+    color: #5d6b82;
+    font-size: 9.5pt;
+    font-weight: bold;
+    border-bottom: 2px solid #eff1f4;
+    padding: 12px 14px;
+    text-align: left;
+  }
+  th.center { text-align: center; }
+  th.right { text-align: right; }
+  
+  /* Table Data styling */
+  td {
+    padding: 12px 14px;
+    border-bottom: 1px solid #eff1f4;
+    font-size: 9.5pt;
+    color: #303846;
+    vertical-align: middle;
+  }
+  
+  /* Column and Text modifiers */
+  .client-name {
+    font-weight: bold;
+    color: #121212;
+  }
+  .doc-count {
+    text-align: center;
+    color: #5d6b82;
+    font-weight: 600;
+  }
+  .paid-cell {
+    text-align: right;
+    color: #10b981; /* emerald-600 */
+    font-weight: bold;
+    mso-number-format: "\\\"IDR\\\"\\ \\#\\,\\#\\#0";
+  }
+  .pending-cell {
+    text-align: right;
+    color: #3b82f6; /* blue-600 */
+    font-weight: bold;
+    mso-number-format: "\\\"IDR\\\"\\ \\#\\,\\#\\#0";
+  }
+  .gross-cell {
+    text-align: right;
+    color: #121212;
+    font-weight: bold;
+    mso-number-format: "\\\"IDR\\\"\\ \\#\\,\\#\\#0";
+  }
+</style>
+</head>
+<body>
+  <div class="report-header">
+    <h1 class="report-title">Financial Reports</h1>
+    <p class="report-subtitle">Client Billed Summary - Corporate statistics ranked by gross billings</p>
+  </div>
+  
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 250px;">Client Partner</th>
+        <th class="center" style="width: 120px;">Invoices Issued</th>
+        <th class="right" style="width: 160px;">Settled (Paid)</th>
+        <th class="right" style="width: 160px;">Outstanding (Sent)</th>
+        <th class="right" style="width: 160px;">Gross Volume</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
     parsedReportRows.forEach((row) => {
-      csvContent += `"${row.clientName}",${row.count},${row.paid},${row.pending},${row.total}\n`;
+      // Escape HTML entities to prevent invalid markup in client name
+      const escapedClientName = (row.clientName || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+      
+      const invoicesIssued = row.count;
+      const settledPaid = row.paid;
+      const outstandingSent = row.pending;
+      const grossVolume = row.total;
+
+      htmlContent += `
+      <tr>
+        <td class="client-name">${escapedClientName}</td>
+        <td class="doc-count">${invoicesIssued} document${invoicesIssued !== 1 ? 's' : ''}</td>
+        <td class="paid-cell">${settledPaid}</td>
+        <td class="pending-cell">${outstandingSent}</td>
+        <td class="gross-cell">${grossVolume}</td>
+      </tr>`;
     });
-    const encodedUri = encodeURI(csvContent);
+
+    htmlContent += `
+    </tbody>
+  </table>
+</body>
+</html>`;
+
+    // Download formatted HTML table as an .xls file
+    const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
+    link.href = url;
+    link.setAttribute('download', 'Invoice_Report_2026.xls');
+    document.body.appendChild(link);
+    link.click();
+    
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Triggers window CSV download using robust Blob and UTF-8 BOM, formatting numbers as IDR strings exactly like the website's table
+  const handleExportCSV = () => {
+    // Add UTF-8 BOM to ensure Excel opens special characters and layout correctly
+    let csvContent = '\uFEFF';
+    
+    // Add delimiter override so Excel splits columns correctly regardless of computer regional settings (e.g. Indonesian regional setting)
+    csvContent += 'sep=,\n';
+    
+    // Align CSV Headers exactly with the premium UI Table Headers
+    csvContent += 'Client Partner,Invoices Issued,Settled (Paid),Outstanding (Sent),Gross Volume\n';
+    
+    parsedReportRows.forEach((row) => {
+      // Escape double quotes inside client name by doubling them
+      const escapedClientName = (row.clientName || '').replace(/"/g, '""');
+      
+      // Format all data columns exactly as rendered in the premium UI table
+      const invoicesIssued = `${row.count} document${row.count !== 1 ? 's' : ''}`;
+      const settledPaid = formatIDR(row.paid);
+      const outstandingSent = formatIDR(row.pending);
+      const grossVolume = formatIDR(row.total);
+      
+      csvContent += `"${escapedClientName}","${invoicesIssued}","${settledPaid}","${outstandingSent}","${grossVolume}"\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
     link.setAttribute('download', 'Invoice_Report_2026.csv');
     document.body.appendChild(link);
     link.click();
+    
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -60,14 +234,25 @@ export default function ReportsView({ invoices, customers }: ReportsViewProps) {
           <p className="text-xs text-[#5d6b82]">Analyze billings, corporate taxes, discounts, and client ledgers</p>
         </div>
 
-        <button
-          id="export-csv-btn"
-          onClick={handleExportCSV}
-          className="px-5 py-2.5 bg-[#121212] hover:bg-black text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer soft-shadow self-start"
-        >
-          <FileSpreadsheet size={15} />
-          <span>Export Billed Ledger CSV</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            id="export-csv-btn"
+            onClick={handleExportCSV}
+            className="px-4 py-2.5 bg-white hover:bg-slate-50 text-[#121212] border border-[#eff1f4] text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer soft-shadow"
+          >
+            <Download size={14} />
+            <span>Export CSV</span>
+          </button>
+
+          <button
+            id="export-excel-btn"
+            onClick={handleExportExcel}
+            className="px-4 py-2.5 bg-[#121212] hover:bg-black text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer soft-shadow"
+          >
+            <FileSpreadsheet size={14} />
+            <span>Export Excel (Styled)</span>
+          </button>
+        </div>
       </div>
 
       {/* Numerical Stats Summaries */}

@@ -1,215 +1,52 @@
-import React, { useState } from 'react';
-import { Printer, Download, Image as ImageIcon, CheckCircle2, Loader2, X, ExternalLink, FileText, AlertCircle } from 'lucide-react';
-import { Invoice, SenderInfo } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Printer, Download, Image as ImageIcon, CheckCircle2, Loader2, X, ExternalLink, FileText, AlertCircle, Phone, Mail, MapPin, MessageCircle } from 'lucide-react';
+import { Invoice, SenderInfo, Customer } from '../types';
 import { formatIDR, formatDate } from '../utils';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
-
-// Helper to temporarily polyfill getComputedStyle to convert OKLCH and OKLab values to RGB for html2canvas compatibility
-const runWithOklchPolyfill = async <T,>(action: () => Promise<T>): Promise<T> => {
-  const originalGetComputedStyle = window.getComputedStyle;
-
-  // OKLab to RGB conversion algorithm
-  const oklabToRgb = (oklabStr: string): string => {
-    // Regex matches oklab(L a b) and oklab(L a b / A) or comma-separated versions
-    const regex = /oklab\s*\(\s*([\d.]+%?)\s+([-+\d.]+%?)\s+([-+\d.]+%?)\s*(?:\/\s*([\d.]+%?))?\s*\)/i;
-    const commaRegex = /oklab\s*\(\s*([\d.]+%?)\s*,\s*([-+\d.]+%?)\s*,\s*([-+\d.]+%?)\s*(?:,\s*([\d.]+%?))?\s*\)/i;
-    
-    let match = oklabStr.match(regex) || oklabStr.match(commaRegex);
-    if (!match) {
-      const numbers = oklabStr.match(/[-+\d.]+%?/g);
-      if (numbers && numbers.length >= 3) {
-        match = [oklabStr, numbers[0], numbers[1], numbers[2], numbers[3] || '1'];
-      } else {
-        return 'rgb(255, 255, 255)';
-      }
-    }
-
-    const parsePercent = (val: string, maxVal = 1) => {
-      if (val.endsWith('%')) {
-        return (parseFloat(val) / 100) * maxVal;
-      }
-      return parseFloat(val);
-    };
-
-    let L = parsePercent(match[1]); // lightness: 0..1
-    let a = parseFloat(match[2]);   // red/green coordinate
-    let b = parseFloat(match[3]);   // yellow/blue coordinate
-    const A = match[4] ? parsePercent(match[4]) : 1;
-
-    // OKLab to LMS
-    const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-    const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-    const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
-
-    const l = l_ * l_ * l_;
-    const m = m_ * m_ * m_;
-    const s = s_ * s_ * s_;
-
-    // LMS to XYZ/Linear sRGB
-    let rLinear = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
-    let gLinear = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-    let bLinear = -0.0041960863 * l - 0.7034186147 * m + 1.7076386775 * s;
-
-    // Clip & sRGB standard gamma companding
-    const compand = (ch: number) => {
-      const clamped = Math.max(0, Math.min(1, ch));
-      return clamped <= 0.0031308 
-        ? 12.92 * clamped 
-        : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
-    };
-
-    const R = Math.round(compand(rLinear) * 255);
-    const G = Math.round(compand(gLinear) * 255);
-    const B = Math.round(compand(bLinear) * 255);
-
-    if (A < 1) {
-      return `rgba(${R}, ${G}, ${B}, ${A})`;
-    }
-    return `rgb(${R}, ${G}, ${B})`;
-  };
-
-  // OKLCH to RGB conversion algorithm
-  const oklchToRgb = (oklchStr: string): string => {
-    // Regex matches oklch(L C H) and oklch(L C H / A) or comma-separated versions
-    const regex = /oklch\s*\(\s*([\d.]+%?)\s+([\d.]+%?)\s+([\d.]+(?:deg|rad|grad|turn)?)\s*(?:\/\s*([\d.]+%?))?\s*\)/i;
-    const commaRegex = /oklch\s*\(\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*,\s*([\d.]+(?:deg|rad|grad|turn)?)\s*(?:,\s*([\d.]+%?))?\s*\)/i;
-    
-    let match = oklchStr.match(regex) || oklchStr.match(commaRegex);
-    if (!match) {
-      const numbers = oklchStr.match(/[\d.]+%?/g);
-      if (numbers && numbers.length >= 3) {
-        match = [oklchStr, numbers[0], numbers[1], numbers[2], numbers[3] || '1'];
-      } else {
-        return 'rgb(255, 255, 255)';
-      }
-    }
-
-    const parsePercent = (val: string, maxVal = 1) => {
-      if (val.endsWith('%')) {
-        return (parseFloat(val) / 100) * maxVal;
-      }
-      return parseFloat(val);
-    };
-
-    let L = parsePercent(match[1]); // light: 0..1
-    let C = parseFloat(match[2]); // chroma
-    let HStr = match[3];
-    let H = parseFloat(HStr);
-    
-    if (HStr.endsWith('rad')) {
-      H = (H * 180) / Math.PI;
-    } else if (HStr.endsWith('grad')) {
-      H = (H * 360) / 400;
-    } else if (HStr.endsWith('turn')) {
-      H = H * 360;
-    }
-
-    const A = match[4] ? parsePercent(match[4]) : 1;
-
-    // Convert cylinder OKLCH to OKLab:
-    const hRad = (H * Math.PI) / 180;
-    const a = C * Math.cos(hRad);
-    const b = C * Math.sin(hRad);
-
-    // OKLab to LMS
-    const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-    const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-    const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
-
-    const l = l_ * l_ * l_;
-    const m = m_ * m_ * m_;
-    const s = s_ * s_ * s_;
-
-    // LMS to XYZ/Linear sRGB
-    let rLinear = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
-    let gLinear = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-    let bLinear = -0.0041960863 * l - 0.7034186147 * m + 1.7076386775 * s;
-
-    // Clip & sRGB standard gamma companding
-    const compand = (ch: number) => {
-      const clamped = Math.max(0, Math.min(1, ch));
-      return clamped <= 0.0031308 
-        ? 12.92 * clamped 
-        : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
-    };
-
-    const R = Math.round(compand(rLinear) * 255);
-    const G = Math.round(compand(gLinear) * 255);
-    const B = Math.round(compand(bLinear) * 255);
-
-    if (A < 1) {
-      return `rgba(${R}, ${G}, ${B}, ${A})`;
-    }
-    return `rgb(${R}, ${G}, ${B})`;
-  };
-
-  const replaceColorsInString = (str: string): string => {
-    if (!str || typeof str !== 'string') return str;
-    let result = str;
-    if (result.includes('oklch')) {
-      result = result.replace(/oklch\s*\([^)]+\)/gi, (match) => {
-        try {
-          return oklchToRgb(match);
-        } catch (e) {
-          return 'rgb(255, 255, 255)';
-        }
-      });
-    }
-    if (result.includes('oklab')) {
-      result = result.replace(/oklab\s*\([^)]+\)/gi, (match) => {
-        try {
-          return oklabToRgb(match);
-        } catch (e) {
-          return 'rgb(255, 255, 255)';
-        }
-      });
-    }
-    return result;
-  };
-
-  // Polyfill computedStyle elements
-  window.getComputedStyle = function (el, pseudoEl) {
-    const style = originalGetComputedStyle(el, pseudoEl);
-    return new Proxy(style, {
-      get(target, prop) {
-        if (prop === 'getPropertyValue') {
-          return function (propertyName: string) {
-            const val = target.getPropertyValue(propertyName);
-            if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
-              return replaceColorsInString(val);
-            }
-            return val;
-          };
-        }
-        const val = target[prop as keyof typeof target];
-        if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
-          return replaceColorsInString(val);
-        }
-        if (typeof val === 'function') {
-          return val.bind(target);
-        }
-        return val;
-      },
-    });
-  };
-
-  try {
-    return await action();
-  } finally {
-    window.getComputedStyle = originalGetComputedStyle;
-  }
-};
 
 interface InvoicePreviewProps {
   invoice: Invoice;
   sender: SenderInfo;
+  customers?: Customer[];
 }
 
-export default function InvoicePreview({ invoice, sender }: InvoicePreviewProps) {
+export default function InvoicePreview({ invoice, sender, customers }: InvoicePreviewProps) {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingPng, setIsExportingPng] = useState(false);
   const [showExportSuccess, setShowExportSuccess] = useState<string | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) {
+        const containerWidth = containerRef.current.getBoundingClientRect().width;
+        // Padding space on outer canvas wrapper: p-4 is 16px*2=32px, md:p-8 is 32px*2=64px
+        const isMobile = window.innerWidth < 768;
+        const padding = isMobile ? 32 : 64;
+        const availableWidth = containerWidth - padding;
+        const newScale = Math.min(1, availableWidth / 794);
+        setScale(newScale);
+      }
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    // Timeout as fallback for route transitions or layout updates
+    const timer = setTimeout(handleResize, 100);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Find customer details if matching customer exists in the customer list
+  const matchedCustomer = customers?.find(
+    (c) => c.name.toLowerCase() === invoice.customerName?.toLowerCase()
+  );
 
   // Modal tracking states for sandbox environments
   const [exportedPngUrl, setExportedPngUrl] = useState<string | null>(null);
@@ -228,14 +65,28 @@ export default function InvoicePreview({ invoice, sender }: InvoicePreviewProps)
       printClone.id = 'print-clone-target';
       printClone.classList.add('print-only-container');
       
-      // Add printable class to body and append clone
+      // Reset scaling and absolute positioning styles for printing
+      printClone.style.transform = 'none';
+      printClone.style.transformOrigin = 'initial';
+      printClone.style.position = 'relative';
+      printClone.style.width = '100%';
+      printClone.style.height = '100%';
+      printClone.style.top = 'auto';
+      printClone.style.left = 'auto';
+      printClone.style.borderRadius = '0';
+      printClone.style.border = 'none';
+      printClone.style.boxShadow = 'none';
+      
+      // Add printable class to body and HTML, and append clone
+      document.documentElement.classList.add('is-printing-active');
       document.body.classList.add('is-printing-active');
       document.body.appendChild(printClone);
       
       // Execute printing
       window.print();
       
-      // Cleanup cloned DOM & body state
+      // Cleanup cloned DOM & body/HTML state
+      document.documentElement.classList.remove('is-printing-active');
       document.body.classList.remove('is-printing-active');
       const attachedClone = document.getElementById('print-clone-target');
       if (attachedClone) {
@@ -246,30 +97,75 @@ export default function InvoicePreview({ invoice, sender }: InvoicePreviewProps)
     }
   };
 
-  // High-fidelity PNG Export
+  // Generate a high-definition A4 PNG data URL using html-to-image (browser-native rendering)
+  const generateHighResImageDataUrl = async (printArea: HTMLElement): Promise<string> => {
+    // Wait for all fonts to be fully loaded before capturing
+    if (document.fonts) {
+      await document.fonts.ready;
+    }
+
+    // Create an off-screen container at exact A4 dimensions
+    const tempContainer = document.createElement('div');
+    tempContainer.style.position = 'fixed';
+    tempContainer.style.left = '-10000px';
+    tempContainer.style.top = '0';
+    tempContainer.style.width = '794px';
+    tempContainer.style.height = '1123px';
+    tempContainer.style.overflow = 'hidden';
+    tempContainer.style.backgroundColor = '#ffffff';
+    tempContainer.style.zIndex = '-9999';
+
+    // Clone the print area into this off-screen container
+    const printClone = printArea.cloneNode(true) as HTMLElement;
+    printClone.style.transform = 'none';
+    printClone.style.transformOrigin = 'top left';
+    printClone.style.position = 'relative';
+    printClone.style.top = '0';
+    printClone.style.left = '0';
+    printClone.style.width = '794px';
+    printClone.style.height = '1123px';
+    printClone.style.minHeight = '1123px';
+    printClone.style.maxHeight = '1123px';
+    printClone.style.padding = '0';
+    printClone.style.boxShadow = 'none';
+    printClone.style.borderRadius = '0';
+    printClone.style.border = 'none';
+    printClone.style.boxSizing = 'border-box';
+    printClone.style.overflow = 'hidden';
+
+    tempContainer.appendChild(printClone);
+    document.body.appendChild(tempContainer);
+
+    // Allow browser to fully reflow the cloned element
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    try {
+      // html-to-image uses SVG foreignObject â€” the browser's OWN rendering engine
+      // draws the content, so ALL CSS properties work exactly like the preview
+      const dataUrl = await toPng(printClone, {
+        width: 794,
+        height: 1123,
+        pixelRatio: 3, // High-def 3x output
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+        skipAutoScale: true,
+        includeQueryParams: true,
+      });
+      return dataUrl;
+    } finally {
+      document.body.removeChild(tempContainer);
+    }
+  };
+
+  // High-fidelity PNG Export matching exact A4 paper size
   const handleExportPng = async () => {
     const printArea = document.getElementById('print-area');
     if (!printArea) return;
 
     setIsExportingPng(true);
     try {
-      // Temporarily remove shadow and border styling before capturing
-      const originalBoxShadow = printArea.style.boxShadow;
-      printArea.style.boxShadow = 'none';
-
-      const canvas = await runWithOklchPolyfill(async () => {
-        return await html2canvas(printArea, {
-          scale: 3, // Premium high-def output
-          useCORS: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-        });
-      });
-
-      // Restore styling
-      printArea.style.boxShadow = originalBoxShadow;
-
-      const imgData = canvas.toDataURL('image/png');
+      const imgData = await generateHighResImageDataUrl(printArea);
+      
       setExportedPngUrl(imgData);
       setModalType('png');
       setIsModalOpen(true);
@@ -291,30 +187,14 @@ export default function InvoicePreview({ invoice, sender }: InvoicePreviewProps)
     }
   };
 
-  // High-fidelity PDF Export
+  // High-fidelity PDF Export matching exact A4 paper size
   const handleExportPdf = async () => {
     const printArea = document.getElementById('print-area');
     if (!printArea) return;
 
     setIsExportingPdf(true);
     try {
-      // Temporarily remove shadow for clean print render
-      const originalBoxShadow = printArea.style.boxShadow;
-      printArea.style.boxShadow = 'none';
-
-      const canvas = await runWithOklchPolyfill(async () => {
-        return await html2canvas(printArea, {
-          scale: 2.5, // Crisp font rendering
-          useCORS: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-        });
-      });
-
-      // Restore styling
-      printArea.style.boxShadow = originalBoxShadow;
-
-      const imgData = canvas.toDataURL('image/png');
+      const imgData = await generateHighResImageDataUrl(printArea);
       
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -324,11 +204,9 @@ export default function InvoicePreview({ invoice, sender }: InvoicePreviewProps)
 
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-      // Fit or scale properly vertically if the content spills slightly
-      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, Math.min(imgHeight, pdfHeight));
+      // Since image has the exact same A4 aspect ratio, it fits the PDF page perfectly
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
 
       // Generate localized blob URL and store in state for explicit view options
       const pdfBlob = pdf.output('blob');
@@ -347,6 +225,57 @@ export default function InvoicePreview({ invoice, sender }: InvoicePreviewProps)
     } finally {
       setIsExportingPdf(false);
     }
+  };
+
+  const handleShareWhatsapp = () => {
+    const typeLabel = 
+      invoice.documentType === 'quotation' ? 'Penawaran Barang' :
+      invoice.documentType === 'dp' ? 'Invoice DP (Down Payment)' :
+      invoice.documentType === 'pelunasan' ? 'Invoice Pelunasan' :
+      invoice.documentType === 'receipt' ? 'Nota Barang (Receipt)' : 'Invoice';
+
+    const formattedTotal = formatIDR(invoice.total);
+    const formattedDate = formatDate(invoice.issueDate);
+    const formattedDueDate = formatDate(invoice.dueDate);
+    
+    let message = `Halo *${invoice.customerName || 'Klien'}*,\n\n`;
+    message += `Berikut kami kirimkan rincian dokumen *${invNoLabel()} ${invoice.invoiceNumber || 'Draft'}*:\n`;
+    message += `- *Tipe Dokumen*: ${typeLabel}\n`;
+    message += `- *Tanggal*: ${formattedDate}\n`;
+    if (invoice.documentType !== 'receipt' && invoice.documentType !== 'quotation') {
+      message += `- *Jatuh Tempo*: ${formattedDueDate}\n`;
+    }
+    message += `- *Total Tagihan*: *${formattedTotal}*\n\n`;
+    
+    if (invoice.documentType === 'quotation') {
+      message += `Penawaran ini berlaku selama periode validitas yang tertera. Silakan hubungi kami untuk konfirmasi lebih lanjut.\n\n`;
+    } else if (invoice.documentType === 'receipt') {
+      message += `Terima kasih atas pembayaran Anda. Dokumen ini adalah bukti pembayaran yang sah.\n\n`;
+    } else {
+      message += `Mohon untuk melakukan transfer ke rekening bank berikut:\n`;
+      message += `- *Bank*: ${sender.bankName}\n`;
+      message += `- *Atas Nama*: ${sender.bankAccountName}\n`;
+      message += `- *No Rekening*: ${sender.bankAccountNumber}\n\n`;
+      message += `Harap melakukan konfirmasi setelah pembayaran berhasil dilakukan.\n\n`;
+    }
+    
+    message += `Terima kasih atas kerja sama Anda.\n*${sender.companyName}*`;
+
+    let cleanPhone = invoice.customerPhone ? invoice.customerPhone.replace(/[^0-9]/g, '') : '';
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '62' + cleanPhone.slice(1);
+    }
+
+    const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+    window.open(waUrl, '_blank');
+  };
+
+  const invNoLabel = () => {
+    if (invoice.documentType === 'quotation') return 'Quotation No';
+    if (invoice.documentType === 'dp') return 'Invoice DP No';
+    if (invoice.documentType === 'pelunasan') return 'Invoice PL No';
+    if (invoice.documentType === 'receipt') return 'Receipt No';
+    return 'Invoice No';
   };
 
   return (
@@ -396,6 +325,18 @@ export default function InvoicePreview({ invoice, sender }: InvoicePreviewProps)
             <span>Export PDF</span>
           </button>
 
+          {/* Share WhatsApp Button */}
+          <button
+            type="button"
+            id="share-wa-btn"
+            onClick={handleShareWhatsapp}
+            className="px-3 py-2 text-[#075e54] hover:text-[#128c7e] bg-[#f0fdf4] hover:bg-[#dcfce7] border border-emerald-100 rounded-lg hover:border-emerald-300 active:scale-95 transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+            title="Bagikan rincian tagihan via WhatsApp"
+          >
+            <MessageCircle size={13} className="text-[#25d366]" />
+            <span>Share WA</span>
+          </button>
+
           {/* Print Button */}
           <button
             type="button"
@@ -409,12 +350,12 @@ export default function InvoicePreview({ invoice, sender }: InvoicePreviewProps)
           </button>
         </div>
       </div>
-
+      
       {/* Success alert badge */}
       {showExportSuccess && (
         <div 
           id="export-success-alert"
-          className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-lg py-2 px-3 text-xs font-medium animate-fade-in"
+          className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-lg py-2 px-3 text-xs font-medium animate-fade-in mb-3"
         >
           <CheckCircle2 size={14} className="text-emerald-600 animate-pulse" />
           <span>Success! Your invoice has been exported and saved as a <strong>{showExportSuccess}</strong> file.</span>
@@ -422,160 +363,388 @@ export default function InvoicePreview({ invoice, sender }: InvoicePreviewProps)
       )}
 
       {/* Sheet Canvas Shadow Wrapper */}
-      <div className="w-full bg-[#f4f5f8] rounded-2xl p-4 md:p-8 flex items-center justify-center border border-[#eff1f4]/60 soft-shadow min-h-[750px] overflow-hidden">
-        {/* Printable/Preview White Box */}
+      <div 
+        ref={containerRef}
+        className="w-full bg-[#f4f5f8] rounded-2xl p-4 md:p-8 flex items-center justify-center border border-[#eff1f4]/60 soft-shadow min-h-[500px] overflow-hidden"
+      >
+        {/* Proportional scaling wrapper to maintain correct heights in document flow */}
         <div 
-          id="print-area" 
-          className="w-full max-w-[680px] bg-white rounded-xl shadow-md p-6 sm:p-10 flex flex-col gap-8 text-[#121212] relative overflow-hidden invoice-shadow border border-white"
+          style={{ 
+            width: `${794 * scale}px`, 
+            height: `${1123 * scale}px`, 
+            position: 'relative',
+            transition: 'width 0.2s, height 0.2s'
+          }}
+          className="shrink-0"
         >
-          {/* Top Section: Header & Metadata */}
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-6 border-b border-dashed border-slate-100 pb-6" id="preview-header-meta">
-            {/* Logo and Brand */}
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-[#121212] flex items-center justify-center text-white font-bold select-none text-base">
-                {/* Visual Circle Line */}
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 3a9 9 0 0 0-9 9c0 1.25.25 2.5.75 3.5M12 3a9 9 0 0 1 9 9c0 1.25-.25 2.5-.75 3.5" />
-                  <path d="M7 12c0-2.5 2-4.5 5-4.5s5 2 5 4.5" />
-                </svg>
-              </div>
-              <div>
-                <span className="font-extrabold text-base text-[#121212] tracking-tight block">
-                  {sender.companyName}
-                </span>
-                <span className="text-[10px] text-[#5d6b82] tracking-wider uppercase font-semibold">
-                  Professional Design Studio
-                </span>
-              </div>
-            </div>
-
-            {/* Dates & Terms Grid */}
-            <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-left sm:text-right" id="preview-date-meta">
-              <div>
-                <span className="text-[10px] text-[#8695ac] font-bold uppercase tracking-wider block">Issue Date</span>
-                <span className="text-[11px] font-semibold text-[#121212] mt-0.5 block">{formatDate(invoice.issueDate) || '–'}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-[#8695ac] font-bold uppercase tracking-wider block">Due Date</span>
-                <span className="text-[11px] font-semibold text-[#121212] mt-0.5 block">{formatDate(invoice.dueDate) || '–'}</span>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] text-[#8695ac] font-bold uppercase tracking-wider block">Payment Terms</span>
-                <span className="text-[11px] font-semibold text-[#121212] mt-0.5 block">{invoice.paymentTerms || '–'}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Billed By and Billed To Column Block */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6" id="preview-address-columns">
-            {/* Billed By Section */}
-            <div className="flex flex-col gap-1.5 bg-[#f8fafc]/40 p-3 rounded-lg border border-slate-50">
-              <span className="text-[10px] text-[#8695ac] font-extrabold uppercase tracking-wider">Billed by:</span>
-              <span className="text-xs font-bold text-[#121212]">{sender.companyName}</span>
-              <p className="text-[11px] leading-relaxed text-[#5d6b82] font-medium whitespace-pre-line">
-                {sender.address}
-              </p>
-            </div>
-
-            {/* Billed To Section */}
-            <div className="flex flex-col gap-1.5 bg-[#f8fafc]/40 p-3 rounded-lg border border-slate-50">
-              <span className="text-[10px] text-[#8695ac] font-extrabold uppercase tracking-wider">Billed to:</span>
-              <span className="text-xs font-bold text-[#121212]">{invoice.customerName || 'PT Customer Name'}</span>
-              <p className="text-[11px] leading-relaxed text-[#5d6b82] font-medium whitespace-pre-line">
-                {invoice.billingAddress || 'Customer Billing Address'}
-              </p>
-            </div>
-          </div>
-
-          {/* Items Preview Table */}
-          <div className="w-full flex flex-col mt-2" id="preview-items-table">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-dashed border-slate-100 text-[#8695ac] text-[10px] font-bold uppercase tracking-wider">
-                  <th className="text-left pb-3 w-[55%] font-bold">Item</th>
-                  <th className="text-center pb-3 w-[15%] font-bold">QTY</th>
-                  <th className="text-right pb-3 w-[15%] font-bold">Cost</th>
-                  <th className="text-right pb-3 w-[15%] font-bold">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-dotted divide-slate-100">
-                {invoice.items.map((item, idx) => (
-                  <tr key={item.id || idx} className="text-xs text-[#303846]">
-                    <td className="py-4 pr-3 font-semibold text-[#121212] leading-snug">
-                      {item.name || 'Untitled Line Item'}
-                    </td>
-                    <td className="py-4 text-center text-[#5d6b82] font-medium whitespace-nowrap">
-                      {item.qty} {item.unit}
-                    </td>
-                    <td className="py-4 text-right text-[#5d6b82] font-medium font-mono">
-                      {formatIDR(item.cost, false)}
-                    </td>
-                    <td className="py-4 text-right font-semibold text-[#121212] font-mono">
-                      {formatIDR(item.amount, false)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Bottom Grid: Left Bank Details, Right Math Formulas */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 border-t border-dashed border-slate-100 pt-6 mt-auto" id="preview-bottom-summaries">
-            {/* Left Bank Container */}
-            <div className="flex flex-col gap-3 justify-end text-left" id="preview-bank-details">
-              <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/50 flex flex-col gap-1.5">
-                <h4 className="text-[10px] font-extrabold text-[#8695ac] uppercase tracking-wider">
-                  Payment Details
-                </h4>
-                <div className="flex flex-col gap-1 text-[11px] font-medium">
-                  <div className="flex justify-between sm:justify-start sm:gap-4 text-[#5d6b82]">
-                    <span className="w-24">Bank Name:</span>
-                    <span className="font-bold text-[#121212]">{sender.bankName}</span>
-                  </div>
-                  <div className="flex justify-between sm:justify-start sm:gap-4 text-[#5d6b82]">
-                    <span className="w-24">Account Name:</span>
-                    <span className="font-bold text-[#121212]">{sender.bankAccountName}</span>
-                  </div>
-                  <div className="flex justify-between sm:justify-start sm:gap-4 text-[#5d6b82]">
-                    <span className="w-24">Account Number:</span>
-                    <span className="font-bold text-[#121212] font-mono">{sender.bankAccountNumber}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Formula Math Container */}
-            <div className="flex flex-col gap-3 text-right text-xs" id="preview-totals-math">
-              <div className="flex justify-between text-[#8695ac] font-bold">
-                <span>Subtotal</span>
-                <span className="font-semibold text-[#121212] font-mono">{formatIDR(invoice.subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-[#8695ac] font-bold">
-                <span>Discount</span>
-                <span className="font-semibold text-rose-500 font-mono">-{formatIDR(invoice.discount)}</span>
-              </div>
-              <div className="flex justify-between text-[#8695ac] font-bold">
-                <span>Tax (11%)</span>
-                <span className="font-semibold text-[#121212] font-mono">+{formatIDR(invoice.taxAmount)}</span>
-              </div>
-              <div className="flex justify-between text-base font-extrabold text-[#121212] border-t border-dashed border-slate-100 pt-3 mt-1.5">
-                <span>Total</span>
-                <span className="font-mono text-base">{formatIDR(invoice.total)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Terms Notes Block */}
-          {invoice.notes && (
-            <div className="border-t border-dashed border-slate-100 pt-4 flex flex-col gap-1 text-left" id="preview-terms-notes">
-              <span className="text-[10px] text-[#8695ac] font-extrabold uppercase tracking-wider">Notes</span>
-              <p className="text-[11px] text-[#5d6b82] leading-relaxed font-semibold italic">
-                "{invoice.notes}"
-              </p>
+          {/* Printable/Preview White Box styled as an A4 sheet for absolute visual consistency */}
+          <div 
+            id="print-area" 
+            style={{
+              width: '794px',
+              height: '1123px',
+              transform: `scale(${scale})`,
+              transformOrigin: 'top left',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+            }}
+            className="bg-white rounded-xl shadow-md text-[#121212] overflow-hidden invoice-shadow border border-white font-sans"
+          >
+          {invoice.documentType === 'receipt' && (
+            <div 
+              style={{
+                position: 'absolute',
+                top: '140px',
+                right: '80px',
+                transform: 'rotate(-15deg)',
+                border: '4px double #10b981',
+                borderRadius: '8px',
+                color: '#10b981',
+                fontSize: '20px',
+                fontWeight: 'bold',
+                padding: '6px 16px',
+                letterSpacing: '3px',
+                textTransform: 'uppercase',
+                opacity: 0.85,
+                zIndex: 30,
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                pointerEvents: 'none',
+                fontFamily: "'Courier New', Courier, monospace"
+              }}
+            >
+              LUNAS / PAID
             </div>
           )}
+          {/* Logo Block (Flush with Left typing margin) */}
+          <div className="absolute top-0 left-6 sm:left-12 w-[110px] h-[155px] bg-[#4a4a4a] flex flex-col items-center justify-center p-4 text-center z-10" style={{ backgroundColor: '#4a4a4a' }}>
+            {/* SVG white logo mark */}
+            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-white mb-2">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4" />
+                <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+              </svg>
+            </div>
+            <span className="font-extrabold text-[9px] text-white tracking-wide block leading-tight mb-1">{sender.companyName}</span>
+            <span className="text-[6px] text-white/50 tracking-wider uppercase font-semibold leading-none">We solve your problems</span>
+          </div>
+
+          {/* Inner padding wrapper to isolate content from print margins and canvas scaling bugs */}
+          <div className="w-full h-full p-12 flex flex-col justify-between" style={{ boxSizing: 'border-box' }}>
+
+          {/* ===== TOP HEADER: Logo Left + INVOICE Title Right ===== */}
+          <div className="flex justify-between items-start" id="preview-header-meta">
+            {/* Logo Block */}
+            <div className="w-[110px]" style={{ minHeight: '40px', display: 'flex', alignItems: 'center' }}>
+              {sender.logoUrl ? (
+                <img src={sender.logoUrl} alt="Logo" style={{ maxWidth: '100%', maxHeight: '55px', objectFit: 'contain' }} />
+              ) : (
+                <div className="w-[110px] h-[10px] invisible"></div>
+              )}
+            </div>
+
+            {/* Dynamic Title */}
+            <h2 
+              className="font-bold text-[#2d2d2d] uppercase text-right" 
+              style={{
+                fontFamily: "'Plus Jakarta Sans', sans-serif",
+                letterSpacing: invoice.documentType && invoice.documentType !== 'invoice' ? '0.12em' : '0.25em',
+                fontSize: invoice.documentType === 'quotation' || invoice.documentType === 'dp' || invoice.documentType === 'pelunasan' || invoice.documentType === 'receipt' ? '22px' : '32px',
+                lineHeight: '1.2'
+              }}
+            >
+              {invoice.documentType === 'quotation' && 'PENAWARAN BARANG'}
+              {invoice.documentType === 'dp' && 'INVOICE UANG MUKA'}
+              {invoice.documentType === 'pelunasan' && 'INVOICE PELUNASAN'}
+              {invoice.documentType === 'receipt' && 'NOTA BARANG'}
+              {(!invoice.documentType || invoice.documentType === 'invoice') && 'INVOICE'}
+            </h2>
+          </div>
+
+          {/* ===== INVOICE TO + INVOICE METADATA ===== */}
+          <div className="flex justify-between items-start gap-8 mt-28 w-full" id="preview-address-columns">
+            {/* Left: Invoice To */}
+            <div className="flex flex-col text-left" style={{ width: '50%' }}>
+              <span className="text-[9px] text-[#aaa] font-bold uppercase tracking-wider mb-1">Invoice To</span>
+              <span className="text-base font-extrabold text-[#121212] leading-tight">{invoice.customerName || 'Client Name'}</span>
+              <span className="text-[10px] text-slate-500 font-medium leading-snug mt-1">{invoice.billingAddress || 'Client Address'}</span>
+              
+              {/* Only render Contact Person if phone or email is provided */}
+              {(invoice.customerPhone || invoice.customerEmail) && (
+                <div className="mt-4 flex flex-col gap-1.5">
+                  <span className="text-[9px] text-[#aaa] font-bold uppercase tracking-wider mb-1">Contact Person</span>
+                  <table style={{ borderCollapse: 'collapse', border: 'none' }} className="text-[10px] text-slate-600 font-medium w-full">
+                    <tbody>
+                      {invoice.customerPhone && (
+                        <tr>
+                          <td className="py-0.5 text-left text-slate-500 font-medium" style={{ width: '55px', border: 'none' }}>Phone</td>
+                          <td className="py-0.5 text-left text-slate-600 font-semibold" style={{ border: 'none' }}>: {invoice.customerPhone}</td>
+                        </tr>
+                      )}
+                      {invoice.customerEmail && (
+                        <tr>
+                          <td className="py-0.5 text-left text-slate-500 font-medium" style={{ border: 'none' }}>E-mail</td>
+                          <td className="py-0.5 text-left text-slate-600 font-semibold" style={{ border: 'none' }}>: {invoice.customerEmail}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Right: Invoice Metadata */}
+            <div className="flex flex-col justify-between items-end text-left pl-6" style={{ width: '50%' }}>
+              <div className="ml-auto flex flex-col gap-4 items-end" style={{ marginRight: '16px' }}>
+                <table style={{ borderCollapse: 'collapse', border: 'none' }} className="text-[10px] text-slate-600 font-medium">
+                  <tbody>
+                    <tr>
+                      <td className="py-1 text-left text-slate-500 font-medium" style={{ width: '90px', border: 'none' }}>
+                        {invoice.documentType === 'quotation' && 'Quotation No'}
+                        {invoice.documentType === 'dp' && 'Invoice DP No'}
+                        {invoice.documentType === 'pelunasan' && 'Invoice PL No'}
+                        {invoice.documentType === 'receipt' && 'Receipt No'}
+                        {(!invoice.documentType || invoice.documentType === 'invoice') && 'Invoice No'}
+                      </td>
+                      <td className="py-1 text-center" style={{ width: '12px', border: 'none' }}>:</td>
+                      <td className="py-1 text-left text-[#121212] font-semibold" style={{ border: 'none' }}>{invoice.invoiceNumber || '—'}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1 text-left text-slate-500 font-medium" style={{ border: 'none' }}>
+                        {invoice.documentType === 'quotation' && 'Quotation Date'}
+                        {invoice.documentType === 'receipt' && 'Receipt Date'}
+                        {(invoice.documentType !== 'quotation' && invoice.documentType !== 'receipt') && 'Invoice Date'}
+                      </td>
+                      <td className="py-1 text-center" style={{ border: 'none' }}>:</td>
+                      <td className="py-1 text-left text-[#121212] font-semibold" style={{ border: 'none' }}>{formatDate(invoice.issueDate) || '—'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Group table and totals section together to control vertical spacing and prevent justify-between from spreading them apart */}
+          <div className="w-full flex flex-col gap-4 mt-6" id="table-totals-group">
+            {/* ===== ITEMS TABLE with Dark Header + Zebra Rows ===== */}
+            <div className="w-full flex flex-col" id="preview-items-table">
+              <table className="w-full" style={{borderCollapse: 'collapse'}}>
+                <thead>
+                  <tr className="bg-[#4a4a4a] text-white text-[9px] font-bold uppercase tracking-wider">
+                    <th className="rounded-l-lg w-[8%]" style={{ padding: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', minHeight: '40px', padding: '0 16px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1' }}>#</div>
+                    </th>
+                    <th className="w-[42%]" style={{ padding: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', minHeight: '40px', padding: '0 16px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1' }}>Description</div>
+                    </th>
+                    <th className="w-[16%]" style={{ padding: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minHeight: '40px', padding: '0 16px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1' }}>Price</div>
+                    </th>
+                    <th className="w-[16%]" style={{ padding: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '40px', padding: '0 16px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1' }}>Quantity</div>
+                    </th>
+                    <th className="rounded-r-lg w-[18%]" style={{ padding: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minHeight: '40px', padding: '0 16px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1' }}>Amount</div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoice.items.map((item, idx) => (
+                    <tr 
+                      key={item.id || idx} 
+                      className={`text-[11px] text-[#444] ${idx % 2 === 1 ? 'bg-[#eaeaea]' : 'bg-white'}`}
+                    >
+                      <td style={{ padding: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', minHeight: '44px', padding: '0 16px', color: '#999', fontWeight: 600, lineHeight: '1' }}>
+                          {item.rowNumber !== undefined ? item.rowNumber : String(idx + 1).padStart(2, '0')}
+                        </div>
+                      </td>
+                      <td style={{ padding: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', minHeight: '44px', padding: '0 16px', color: '#2d2d2d', fontWeight: 600, lineHeight: '1' }}>
+                          {item.name || ''}
+                        </div>
+                      </td>
+                      <td style={{ padding: 0 }}>
+                        <div className="font-mono" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minHeight: '44px', padding: '0 16px', fontWeight: 500, lineHeight: '1' }}>
+                          {item.cost === 0 ? '' : formatIDR(item.cost, false)}
+                        </div>
+                      </td>
+                      <td style={{ padding: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '44px', padding: '0 16px', fontWeight: 500, lineHeight: '1' }}>
+                          {item.qty === 0 || (!item.name && item.cost === 0) ? '' : `${item.qty} ${item.unit || ''}`}
+                        </div>
+                      </td>
+                      <td style={{ padding: 0 }}>
+                        <div className="font-mono" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minHeight: '44px', padding: '0 16px', color: '#2d2d2d', fontWeight: 600, lineHeight: '1' }}>
+                          {item.amount === 0 ? '' : formatIDR(item.amount, false)}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ===== PAYMENT DETAILS (Left) + SUB TOTAL / TAX / TOTAL BAR (Right) ===== */}
+            <div className="grid grid-cols-[50%_50%] gap-0 mt-6" id="preview-bottom-summaries">
+              {/* Left: Payment Details Block */}
+              <div className="flex flex-col justify-start gap-2 text-left" id="preview-bank-details" style={{ paddingTop: '3px' }}>
+                <span className="text-[10px] text-[#aaa] font-bold uppercase tracking-wider mb-1">Payment Details</span>
+                <div className="grid grid-cols-[90px_1fr] gap-x-2 gap-y-1.5 text-[10px] text-slate-600 font-medium">
+                  <span>Bank Name</span>
+                  <span className="text-[#121212] font-semibold">: {sender.bankName}</span>
+                  <span>Account Name</span>
+                  <span className="text-[#121212] font-semibold">: {sender.bankAccountName}</span>
+                  <span>Account Number</span>
+                  <span className="text-[#121212] font-semibold">: <span className="font-mono">{sender.bankAccountNumber}</span></span>
+                </div>
+              </div>
+
+              {/* Right: Sub Total / Tax / TOTAL (Aligned to table columns: Price 16%, Quantity 16%, Amount 18% -> inner col width proportion is 32%, 32%, 36%) */}
+              <div className="flex flex-col justify-start text-[11px]" id="preview-totals-math">
+                <table className="w-full" style={{ borderCollapse: 'collapse', border: 'none' }}>
+                  <tbody>
+                    {/* Sub Total Row */}
+                    <tr className="bg-transparent">
+                      <td style={{ width: '32%' }} className="px-4 py-[3px]"></td>
+                      <td style={{ width: '32%' }} className="px-4 py-[3px] text-left text-slate-500 font-medium">Sub Total</td>
+                      <td style={{ width: '36%' }} className="px-4 py-[3px] text-right font-semibold text-[#2d2d2d] font-mono">{formatIDR(invoice.subtotal, false)}</td>
+                    </tr>
+
+                    {/* Discount Row */}
+                    {invoice.discount > 0 && (
+                      <tr className="bg-transparent">
+                        <td style={{ width: '32%' }} className="px-4 py-[3px]"></td>
+                        <td style={{ width: '32%' }} className="px-4 py-[3px] text-left text-slate-500 font-medium">Discount</td>
+                        <td style={{ width: '36%' }} className="px-4 py-[3px] text-right font-semibold text-rose-500 font-mono">-{formatIDR(invoice.discount, false)}</td>
+                      </tr>
+                    )}
+
+                    {/* Tax Row */}
+                    {invoice.taxRate > 0 && (
+                      <tr className="bg-transparent">
+                        <td style={{ width: '32%' }} className="px-4 py-[3px]"></td>
+                        <td style={{ width: '32%' }} className="px-4 py-[3px] text-left text-slate-500 font-medium">Tax ({invoice.taxRate}%)</td>
+                        <td style={{ width: '36%' }} className="px-4 py-[3px] text-right font-semibold text-[#2d2d2d] font-mono">{formatIDR(invoice.taxAmount, false)}</td>
+                      </tr>
+                    )}
+
+                    {/* Total Kontrak Row for DP or Pelunasan */}
+                    {(invoice.documentType === 'dp' || invoice.documentType === 'pelunasan') && (
+                      <tr className="bg-transparent">
+                        <td style={{ width: '32%' }} className="px-4 py-[3px]"></td>
+                        <td style={{ width: '32%' }} className="px-4 py-[3px] text-left text-slate-500 font-semibold text-[#2d2d2d]">Total Kontrak</td>
+                        <td style={{ width: '36%' }} className="px-4 py-[3px] text-right font-bold text-[#2d2d2d] font-mono">{formatIDR(invoice.subtotal - invoice.discount + invoice.taxAmount, false)}</td>
+                      </tr>
+                    )}
+
+                    {/* DP Percentage Row for DP */}
+                    {invoice.documentType === 'dp' && (
+                      <tr className="bg-transparent">
+                        <td style={{ width: '32%' }} className="px-4 py-[3px]"></td>
+                        <td style={{ width: '32%' }} className="px-4 py-[3px] text-left text-slate-500 font-medium">Uang Muka (DP {invoice.dpPercentage || 30}%)</td>
+                        <td style={{ width: '36%' }} className="px-4 py-[3px] text-right font-semibold text-[#2d2d2d] font-mono">{formatIDR(invoice.total, false)}</td>
+                      </tr>
+                    )}
+
+                    {/* DP Paid Amount Row for Pelunasan */}
+                    {invoice.documentType === 'pelunasan' && (
+                      <tr className="bg-transparent">
+                        <td style={{ width: '32%' }} className="px-4 py-[3px]"></td>
+                        <td style={{ width: '32%' }} className="px-4 py-[3px] text-left text-slate-500 font-medium">Uang Muka Terbayar</td>
+                        <td style={{ width: '36%' }} className="px-4 py-[3px] text-right font-semibold text-[#2d2d2d] font-mono">-{formatIDR(invoice.dpPaidAmount || 0, false)}</td>
+                      </tr>
+                    )}
+
+                    {/* Dark TOTAL Bar (Aligned to span across Col 2 & 3: Quantity + Amount, matches table headers height of 38px) */}
+                    <tr className="bg-transparent">
+                      <td style={{ width: '32%' }} className="px-4 pt-1 pb-[3px]"></td>
+                      <td colSpan={2} style={{ width: '68%' }} className="px-0 pt-1 pb-[3px]">
+                        <div className="bg-[#4a4a4a] text-white rounded-lg flex justify-between items-center px-4 h-[38px] w-full">
+                          <span className="font-bold text-xs uppercase tracking-wider">
+                            {invoice.documentType === 'quotation' && 'TOTAL PENAWARAN'}
+                            {invoice.documentType === 'dp' && 'TOTAL TAGIHAN DP'}
+                            {invoice.documentType === 'pelunasan' && 'SISA PELUNASAN'}
+                            {invoice.documentType === 'receipt' && 'TOTAL LUNAS'}
+                            {(!invoice.documentType || invoice.documentType === 'invoice') && 'TOTAL'}
+                          </span>
+                          <span className="font-extrabold text-sm font-mono">{formatIDR(invoice.total)}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* ===== TERMS & CONDITIONS + SIGNATURE ===== */}
+          <div className="grid grid-cols-2 gap-8 mt-8 pt-4" id="preview-terms-signature">
+            {/* Left: Terms */}
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-bold text-[#2d2d2d] italic">
+                {invoice.documentType === 'quotation' ? 'Validity & Terms' : invoice.documentType === 'receipt' ? 'Notes' : 'Terms & Conditions'}
+              </span>
+              <p className="text-[9px] text-[#999] leading-relaxed font-medium">
+                {invoice.notes || 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.'}
+              </p>
+            </div>
+
+            {/* Right: Signature */}
+            <div 
+              style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                alignItems: 'center', 
+                justifyContent: 'flex-end', 
+                gap: '4px',
+                marginLeft: 'auto',
+                width: '68%',
+                paddingRight: '0px'
+              }}
+              className="text-center"
+            >
+              {sender.signatureUrl ? (
+                <div style={{ height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '4px' }}>
+                  <img src={sender.signatureUrl} alt="Signature" style={{ maxHeight: '40px', maxWidth: '100px', objectFit: 'contain' }} />
+                </div>
+              ) : (
+                <svg width="100" height="40" viewBox="0 0 120 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M10 38 C15 10, 25 5, 30 25 C35 45, 40 10, 50 20 C55 28, 58 15, 65 22 C70 28, 75 18, 80 25 C85 30, 90 20, 95 22" stroke="#2d2d2d" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+                  <path d="M60 15 L62 8 L58 12" stroke="#2d2d2d" strokeWidth="1" strokeLinecap="round" fill="none"/>
+                  <line x1="10" y1="42" x2="100" y2="42" stroke="#2d2d2d" strokeWidth="0.5" strokeDasharray="2,2"/>
+                </svg>
+              )}
+              <span className="text-[11px] font-bold text-[#2d2d2d]">{invoice.signatureName || sender.bankAccountName}</span>
+              <span className="text-[9px] text-[#999] font-medium italic">Authorized Representative</span>
+            </div>
+          </div>
+
+          {/* ===== CONTACT FOOTER BAR ===== */}
+          <div className="mt-auto pt-4 border-t border-[#2d2d2d] text-[8px] text-[#777] font-medium" id="preview-contact-footer" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', whiteSpace: 'nowrap' }}>
+              <Phone size={10} className="text-[#2d2d2d]" style={{ flexShrink: 0, width: '10px', height: '10px', marginRight: '6px' }} />
+              <span style={{ fontSize: '8px', lineHeight: '10px' }}>{sender.phone || '(+62) 812 1234 1234'}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', whiteSpace: 'nowrap' }}>
+              <MapPin size={10} className="text-[#2d2d2d]" style={{ flexShrink: 0, width: '10px', height: '10px', marginRight: '6px' }} />
+              <span style={{ fontSize: '8px', lineHeight: '10px' }}>{sender.address || 'Jakarta, Indonesia'}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', whiteSpace: 'nowrap' }}>
+              <Mail size={10} className="text-[#2d2d2d]" style={{ flexShrink: 0, width: '10px', height: '10px', marginRight: '6px' }} />
+              <span style={{ fontSize: '8px', lineHeight: '10px' }}>{sender.email || 'admin@mail.com'}</span>
+            </div>
+          </div>
+
+          </div>
+
+          {/* ===== BOTTOM DARK STRIP ===== */}
+          <div className="absolute bottom-0 left-0 right-0 h-10 bg-[#4a4a4a] z-0" style={{ backgroundColor: '#4a4a4a' }}></div>
+
         </div>
       </div>
+    </div>
 
       {/* Modern, Highly Accessible Preview & Export Dialog Modal */}
       {isModalOpen && (
@@ -600,7 +769,7 @@ export default function InvoicePreview({ invoice, sender }: InvoicePreviewProps)
                     {modalType === 'png' ? 'Arsip Gambar (PNG) Siap!' : 'Arsip Dokumen (PDF) Siap!'}
                   </h3>
                   <p className="text-[10px] text-slate-500 font-medium">
-                    Invoice #{invoice.invoiceNumber || 'Draft'} • Studio Arsa Digital
+                    Invoice #{invoice.invoiceNumber || 'Draft'} • TransactFlow
                   </p>
                 </div>
               </div>

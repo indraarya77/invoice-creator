@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, Calendar, ChevronDown, Clock, ChevronUp, FileText } from 'lucide-react';
+import { Plus, Trash2, Calendar, ChevronDown } from 'lucide-react';
 import { Invoice, InvoiceItem, Customer } from '../types';
 import { formatIDR, uuid, formatDate } from '../utils';
 
@@ -9,6 +9,7 @@ interface InvoiceFormProps {
   customers: Customer[];
   invoices?: Invoice[];
   onSelectInvoice?: (invoiceId: string) => void;
+  onSelectDocumentType?: (type: 'invoice' | 'quotation' | 'dp' | 'pelunasan' | 'receipt') => void;
 }
 
 export default function InvoiceForm({ 
@@ -17,9 +18,9 @@ export default function InvoiceForm({
   customers,
   invoices,
   onSelectInvoice,
+  onSelectDocumentType,
 }: InvoiceFormProps) {
   const [showCustomersDropdown, setShowCustomersDropdown] = useState(false);
-  const [isDraftsOpen, setIsDraftsOpen] = useState(true);
 
   // Handle high-level fields
   const handleFieldChange = (field: keyof Invoice, value: any) => {
@@ -55,12 +56,29 @@ export default function InvoiceForm({
       ...prev,
       customerName: customer.name,
       billingAddress: customer.billingAddress,
+      customerPhone: customer.phone || '',
+      customerEmail: customer.email || '',
     }));
     setShowCustomersDropdown(false);
   };
 
   // Add new blank row to table
   const handleAddItem = () => {
+    // Find all active visible row numbers to determine the next one
+    const activeNumbers: number[] = [];
+    invoice.items.forEach((item, i) => {
+      const val = item.rowNumber;
+      const visibleNum = (val !== undefined && val !== null) ? String(val) : String(i + 1).padStart(2, '0');
+      if (visibleNum.trim() !== '') {
+        const parsed = parseInt(visibleNum, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          activeNumbers.push(parsed);
+        }
+      }
+    });
+    const maxNum = activeNumbers.length > 0 ? Math.max(...activeNumbers) : 0;
+    const nextIndex = maxNum + 1;
+    
     const newItem: InvoiceItem = {
       id: uuid(),
       name: '',
@@ -68,6 +86,7 @@ export default function InvoiceForm({
       unit: 'page',
       cost: 0,
       amount: 0,
+      rowNumber: String(nextIndex).padStart(2, '0'),
     };
     setInvoice((prev) => ({
       ...prev,
@@ -120,6 +139,42 @@ export default function InvoiceForm({
           {invoice.invoiceNumber}
         </span>
       </div>
+
+      {/* Inline Document Type Switcher */}
+      {onSelectDocumentType && (
+        <div className="flex flex-col gap-2 border-b border-[#f7f8fa] pb-4" id="document-type-selector">
+          <label className="text-xs font-bold text-[#5d6b82] uppercase tracking-wider">
+            Document Type
+          </label>
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 bg-[#f7f8fa] p-1 rounded-xl border border-[#eff1f4]">
+            {(
+              [
+                { id: 'invoice', label: 'Invoice' },
+                { id: 'quotation', label: 'Quotation' },
+                { id: 'dp', label: 'DP' },
+                { id: 'pelunasan', label: 'Pelunasan' },
+                { id: 'receipt', label: 'Receipt' },
+              ] as const
+            ).map((type) => {
+              const isActive = invoice.documentType === type.id || (!invoice.documentType && type.id === 'invoice');
+              return (
+                <button
+                  key={type.id}
+                  type="button"
+                  onClick={() => onSelectDocumentType(type.id)}
+                  className={`py-2 px-1 text-center rounded-lg text-xs font-bold transition-all duration-200 outline-none select-none cursor-pointer truncate ${
+                    isActive
+                      ? 'bg-white text-[#121212] shadow-sm border border-[#eff1f4]'
+                      : 'text-[#5d6b82] hover:text-[#121212] hover:bg-white/50'
+                  }`}
+                >
+                  {type.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Customer Field */}
       <div className="flex flex-col gap-2 relative" id="customer-select-group">
@@ -184,6 +239,36 @@ export default function InvoiceForm({
         />
       </div>
 
+      {/* Contact Person Phone & Email inputs */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4" id="customer-contact-group">
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-semibold text-[#303846]">
+            Customer Phone (Optional)
+          </label>
+          <input
+            type="text"
+            id="customer-phone-input"
+            value={invoice.customerPhone || ''}
+            onChange={(e) => handleFieldChange('customerPhone', e.target.value)}
+            placeholder="(+62) 812 3456 7890"
+            className="w-full px-4 py-3 rounded-xl border border-[#dddfdf] text-sm text-[#121212] focus:border-[#121212] focus:ring-1 focus:ring-[#121212] outline-none transition-all bg-white"
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-semibold text-[#303846]">
+            Customer Email (Optional)
+          </label>
+          <input
+            type="email"
+            id="customer-email-input"
+            value={invoice.customerEmail || ''}
+            onChange={(e) => handleFieldChange('customerEmail', e.target.value)}
+            placeholder="client@mail.com"
+            className="w-full px-4 py-3 rounded-xl border border-[#dddfdf] text-sm text-[#121212] focus:border-[#121212] focus:ring-1 focus:ring-[#121212] outline-none transition-all bg-white"
+          />
+        </div>
+      </div>
+
       {/* Dates & Net Terms */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" id="invoice-dates-terms-row">
         {/* Issue Date */}
@@ -220,10 +305,10 @@ export default function InvoiceForm({
           </div>
         </div>
 
-        {/* Payment Terms */}
+        {/* Payment Terms / Validity Period */}
         <div className="flex flex-col gap-2">
           <label className="text-sm font-semibold text-[#303846]">
-            Payment Terms <span className="text-red-500">*</span>
+            {invoice.documentType === 'quotation' ? 'Validity Period' : 'Payment Terms'} <span className="text-red-500">*</span>
           </label>
           <div className="relative">
             <select
@@ -232,11 +317,22 @@ export default function InvoiceForm({
               onChange={(e) => handleFieldChange('paymentTerms', e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-[#dddfdf] text-sm text-[#121212] focus:border-[#121212] focus:ring-1 focus:ring-[#121212] outline-none transition-all bg-white appearance-none cursor-pointer pr-10"
             >
-              <option value="Net 7">Net 7</option>
-              <option value="Net 14">Net 14</option>
-              <option value="Net 30">Net 30</option>
-              <option value="Net 45">Net 45</option>
-              <option value="Due on Receipt">Due on Receipt</option>
+              {invoice.documentType === 'quotation' ? (
+                <>
+                  <option value="7 Days">7 Days</option>
+                  <option value="14 Days">14 Days</option>
+                  <option value="30 Days">30 Days</option>
+                  <option value="60 Days">60 Days</option>
+                </>
+              ) : (
+                <>
+                  <option value="Net 7">Net 7</option>
+                  <option value="Net 14">Net 14</option>
+                  <option value="Net 30">Net 30</option>
+                  <option value="Net 45">Net 45</option>
+                  <option value="Due on Receipt">Due on Receipt</option>
+                </>
+              )}
             </select>
             <ChevronDown size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#5d6b82] pointer-events-none" />
           </div>
@@ -254,7 +350,8 @@ export default function InvoiceForm({
           <table className="w-full min-w-[500px]">
             <thead>
               <tr className="bg-[#f7f8fa] text-[#5d6b82] text-xs font-semibold rounded-lg uppercase tracking-wider">
-                <th className="text-left px-3 py-2.5 rounded-l-lg w-[45%]">Item</th>
+                <th className="text-center px-2 py-2.5 rounded-l-lg w-[8%]">No</th>
+                <th className="text-left px-3 py-2.5 w-[37%]">Item</th>
                 <th className="text-center px-2 py-2.5 w-[15%]">QTY</th>
                 <th className="text-left px-2 py-2.5 w-[20%]">Cost</th>
                 <th className="text-right px-2 py-2.5 w-[15%]">Amount</th>
@@ -262,8 +359,19 @@ export default function InvoiceForm({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#f7f8fa]">
-              {invoice.items.map((item) => (
+              {invoice.items.map((item, index) => (
                 <tr key={item.id} className="group" id={`item-row-${item.id}`}>
+                  {/* Row Number Column */}
+                  <td className="px-1 py-3 text-center">
+                    <input
+                      type="text"
+                      id={`item-rownum-${item.id}`}
+                      value={item.rowNumber !== undefined ? item.rowNumber : String(index + 1).padStart(2, '0')}
+                      onChange={(e) => handleItemChange(item.id, 'rowNumber', e.target.value)}
+                      className="w-10 text-center py-2 rounded-lg border border-[#dddfdf] text-xs font-bold text-[#5d6b82] focus:border-[#121212] outline-none transition-all bg-white"
+                    />
+                  </td>
+
                   {/* Item Description */}
                   <td className="px-1 py-3">
                     <input
@@ -348,54 +456,133 @@ export default function InvoiceForm({
       </div>
 
       {/* Calculations & Summary Section */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-[#f7f8fa] pt-5" id="calculations-section">
-        {/* Discount Input */}
-        <div className="flex flex-col gap-1.5" id="discount-group">
-          <label className="text-xs font-bold text-[#5d6b82] uppercase tracking-wider">Discount *</label>
-          <div className="flex items-center relative">
-            <span className="absolute left-3 text-xs font-semibold text-[#5d6b82] pointer-events-none">IDR</span>
-            <input
-              type="text"
-              id="discount-input"
-              value={invoice.discount === 0 ? '' : formatIDR(invoice.discount, false)}
-              onChange={(e) => {
-                // Parse number
-                const raw = e.target.value.replace(/[^0-9]/g, '');
-                handleFieldChange('discount', parseInt(raw, 10) || 0);
-              }}
-              placeholder="500.000"
-              className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-[#dddfdf] text-xs font-semibold text-[#121212] focus:border-[#121212] outline-none transition-all"
-            />
+      {/* Calculations & Summary Section */}
+      <div className="flex flex-col gap-4 border-t border-[#f7f8fa] pt-5" id="calculations-section">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Discount Input */}
+          <div className="flex flex-col gap-1.5" id="discount-group">
+            <label className="text-xs font-bold text-[#5d6b82] uppercase tracking-wider">Discount (Optional)</label>
+            <div className="flex items-center relative">
+              <span className="absolute left-3 text-xs font-semibold text-[#5d6b82] pointer-events-none">IDR</span>
+              <input
+                type="text"
+                id="discount-input"
+                value={invoice.discount === 0 ? '' : formatIDR(invoice.discount, false)}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9]/g, '');
+                  handleFieldChange('discount', parseInt(raw, 10) || 0);
+                }}
+                placeholder="500.000"
+                className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-[#dddfdf] text-xs font-semibold text-[#121212] focus:border-[#121212] outline-none transition-all"
+              />
+            </div>
           </div>
+
+          {/* Tax Input */}
+          <div className="flex flex-col gap-1.5" id="tax-group">
+            <label className="text-xs font-bold text-[#5d6b82] uppercase tracking-wider">Tax (Optional)</label>
+            <div className="relative">
+              <select
+                id="tax-rate-input"
+                value={invoice.taxRate || 0}
+                onChange={(e) => handleFieldChange('taxRate', Number(e.target.value))}
+                className="w-full px-4 py-2.5 rounded-xl border border-[#dddfdf] text-xs font-semibold text-[#121212] focus:border-[#121212] focus:ring-1 focus:ring-[#121212] outline-none bg-white appearance-none cursor-pointer pr-10 h-[38px]"
+              >
+                <option value="0">No Tax (0%)</option>
+                <option value="11">PPN (11%)</option>
+              </select>
+              <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#5d6b82] pointer-events-none" />
+            </div>
+            {invoice.taxRate > 0 && (
+              <span className="text-[10px] text-slate-500 font-semibold font-mono pl-1">
+                Amount: {formatIDR(invoice.taxAmount)}
+              </span>
+            )}
+          </div>
+
+          {/* Conditional Input based on Document Type (DP or Pelunasan) */}
+          {invoice.documentType === 'dp' && (
+            <div className="flex flex-col gap-1.5" id="dp-percentage-group">
+              <label className="text-xs font-bold text-[#5d6b82] uppercase tracking-wider">DP Percentage (%)</label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                placeholder="30"
+                id="dp-percentage-input"
+                value={invoice.dpPercentage || ''}
+                onChange={(e) => {
+                  let val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                  handleFieldChange('dpPercentage', val);
+                }}
+                className="w-full px-4 py-2.5 rounded-xl border border-[#dddfdf] text-xs font-semibold text-[#121212] focus:border-[#121212] outline-none transition-all h-[38px]"
+              />
+            </div>
+          )}
+
+          {invoice.documentType === 'pelunasan' && (
+            <div className="flex flex-col gap-1.5" id="dp-paid-group">
+              <label className="text-xs font-bold text-[#5d6b82] uppercase tracking-wider">DP Paid Amount</label>
+              <div className="flex items-center relative">
+                <span className="absolute left-3 text-xs font-semibold text-[#5d6b82] pointer-events-none">IDR</span>
+                <input
+                  type="text"
+                  id="dp-paid-input"
+                  value={invoice.dpPaidAmount === 0 ? '' : formatIDR(invoice.dpPaidAmount, false)}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9]/g, '');
+                    handleFieldChange('dpPaidAmount', parseInt(raw, 10) || 0);
+                  }}
+                  placeholder="3.000.000"
+                  className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-[#dddfdf] text-xs font-semibold text-[#121212] focus:border-[#121212] outline-none transition-all"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Placeholder for standard documents to maintain 3-column layout */}
+          {invoice.documentType !== 'dp' && invoice.documentType !== 'pelunasan' && (
+            <div></div>
+          )}
         </div>
 
-        {/* Tax (PPN 11%) Display */}
-        <div className="flex flex-col gap-1.5" id="tax-group">
-          <label className="text-xs font-bold text-[#5d6b82] uppercase tracking-wider">Tax (PPN 11%) *</label>
-          <div className="flex items-center relative">
-            <span className="absolute left-3 text-xs font-semibold text-[#5d6b82] pointer-events-none font-mono">IDR</span>
-            <input
-              type="text"
-              id="tax-display"
-              readOnly
-              value={formatIDR(invoice.taxAmount, false)}
-              className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-[#eff1f4] bg-[#f7f8fa] text-xs font-semibold text-[#5d6b82] outline-none font-mono"
-            />
-          </div>
-        </div>
+        {/* Display row for Total / Total Contract */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end mt-1">
+          {/* Base Contract Total for DP and Pelunasan */}
+          {(invoice.documentType === 'dp' || invoice.documentType === 'pelunasan') ? (
+            <div className="flex flex-col gap-1.5" id="contract-total-group">
+              <label className="text-xs font-bold text-[#5d6b82] uppercase tracking-wider">Total Kontrak</label>
+              <div className="flex items-center relative">
+                <span className="absolute left-3 text-xs font-semibold text-slate-500 pointer-events-none font-mono">IDR</span>
+                <input
+                  type="text"
+                  readOnly
+                  value={formatIDR(invoice.subtotal - invoice.discount + invoice.taxAmount, false)}
+                  className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-[#dddfdf] bg-slate-50 text-xs font-semibold text-slate-600 outline-none font-mono"
+                />
+              </div>
+            </div>
+          ) : (
+            <div></div>
+          )}
 
-        {/* Total Display */}
-        <div className="flex flex-col gap-1.5" id="total-group">
-          <label className="text-xs font-bold text-[#5d6b82] uppercase tracking-wider">Total *</label>
-          <div className="flex items-center relative">
-            <span className="absolute left-3 text-xs font-semibold text-white pointer-events-none font-mono">IDR</span>
-            <input
-              type="text"
-              id="total-display"
-              readOnly
-              value={formatIDR(invoice.total, false)}
-              className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-transparent bg-[#121212] text-xs font-bold text-white outline-none font-mono"
-            />
+          <div></div>
+
+          {/* Actual Total Due */}
+          <div className="flex flex-col gap-1.5" id="total-group">
+            <label className="text-xs font-bold text-[#5d6b82] uppercase tracking-wider">
+              {invoice.documentType === 'dp' ? 'Total Tagihan DP' : invoice.documentType === 'pelunasan' ? 'Sisa Pelunasan' : 'Total'} *
+            </label>
+            <div className="flex items-center relative">
+              <span className="absolute left-3 text-xs font-semibold text-white pointer-events-none font-mono">IDR</span>
+              <input
+                type="text"
+                id="total-display"
+                readOnly
+                value={formatIDR(invoice.total, false)}
+                className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-transparent bg-[#121212] text-xs font-bold text-white outline-none font-mono"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -415,60 +602,22 @@ export default function InvoiceForm({
         />
       </div>
 
-      {/* Saved Drafts Quick Access */}
-      {invoices && invoices.filter(i => i.status === 'draft').length > 0 && onSelectInvoice && (
-        <div className="border-t border-[#f7f8fa] pt-4 flex flex-col gap-2.5" id="form-quick-drafts">
-          <button
-            type="button"
-            onClick={() => setIsDraftsOpen(!isDraftsOpen)}
-            className="flex items-center justify-between font-bold text-xs text-slate-500 hover:text-slate-800 uppercase tracking-wider py-1 cursor-pointer transition-all"
-          >
-            <span className="flex items-center gap-1.5">
-              <Clock size={14} className="text-amber-500 animate-pulse" />
-              <span>Daftar Draft Tersimpan ({invoices.filter(i => i.status === 'draft').length})</span>
-            </span>
-            {isDraftsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </button>
-          
-          {isDraftsOpen && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
-              {invoices.filter(i => i.status === 'draft').map((draft) => (
-                <button
-                  key={draft.id}
-                  type="button"
-                  onClick={() => onSelectInvoice(draft.id)}
-                  className={`flex items-start justify-between p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                    invoice.id === draft.id
-                      ? 'bg-amber-50/50 border-amber-200 ring-2 ring-amber-100'
-                      : 'bg-slate-50/40 border-slate-100 hover:bg-slate-50 hover:border-slate-300'
-                  }`}
-                  title="Klik untuk mengedit draft ini"
-                >
-                  <div className="flex flex-col gap-0.5 max-w-[75%]">
-                    <span className="text-[10px] font-mono font-bold text-slate-400">
-                      {draft.invoiceNumber}
-                    </span>
-                    <span className="text-[11px] font-extrabold text-slate-700 truncate block">
-                      {draft.customerName || 'PT Pelanggan Baru'}
-                    </span>
-                    <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">
-                      {formatDate(draft.issueDate)}
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-end gap-1 font-mono text-right shrink-0">
-                    <span className="text-[11px] font-black text-[#121212]">
-                      {formatIDR(draft.total, false)}
-                    </span>
-                    <span className="text-[8px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md">
-                      Edit Draft
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Signature Name Input */}
+      <div className="flex flex-col gap-2 border-t border-[#f7f8fa] pt-4 pb-1" id="signature-name-group">
+        <label className="text-sm font-semibold text-[#303846]">
+          Nama Tanda Tangan (Signature Name)
+        </label>
+        <input
+          type="text"
+          id="signature-name-input"
+          value={invoice.signatureName || ''}
+          onChange={(e) => handleFieldChange('signatureName', e.target.value)}
+          placeholder="E.g. TransactFlow Widjaya"
+          className="w-full px-4 py-3 rounded-xl border border-[#dddfdf] text-sm text-[#121212] focus:border-[#121212] focus:ring-1 focus:ring-[#121212] outline-none transition-all bg-white font-semibold"
+        />
+      </div>
+
+
     </div>
   );
 }

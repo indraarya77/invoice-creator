@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, Menu, ArrowLeft, Send, Check, Database, CloudOff, LogIn, LogOut, Copy, CheckSquare, Info, Server, RefreshCw } from 'lucide-react';
+import { Bell, Menu, X, ArrowLeft, Send, Check, Database, CloudOff, LogIn, LogOut, Copy, CheckSquare, Info, Server, RefreshCw, Plus } from 'lucide-react';
 import { ActiveTab } from '../types';
 
 interface HeaderProps {
@@ -15,6 +15,8 @@ interface HeaderProps {
   isSupabaseActive: boolean;
   isSyncing: boolean;
   onManualSync?: () => void;
+  documentType?: string;
+  onCreateNew?: () => void;
 }
 
 export default function Header({
@@ -30,9 +32,12 @@ export default function Header({
   isSupabaseActive,
   isSyncing,
   onManualSync,
+  documentType,
+  onCreateNew,
 }: HeaderProps) {
   const [isSetupModalOpen, setIsSetupModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const sqlQuery = `-- Salin dan jalankan query ini di SQL Editor Supabase Anda:
 
@@ -83,7 +88,13 @@ CREATE TABLE IF NOT EXISTS public.sender_info (
   bank_account_name TEXT,
   bank_account_number TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
-);`;
+);
+
+-- Nonaktifkan RLS agar dapat dibaca & ditulis langsung dari front-end anonim
+ALTER TABLE public.customers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.services DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invoices DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sender_info DISABLE ROW LEVEL SECURITY;`;
 
   const handleCopySql = () => {
     navigator.clipboard.writeText(sqlQuery);
@@ -93,9 +104,9 @@ CREATE TABLE IF NOT EXISTS public.sender_info (
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard' },
+    { id: 'invoices', label: 'Documents' },
     { id: 'customers', label: 'Customers' },
     { id: 'services', label: 'Services' },
-    { id: 'invoices', label: 'Invoices' },
     { id: 'reports', label: 'Reports' },
   ];
 
@@ -104,17 +115,22 @@ CREATE TABLE IF NOT EXISTS public.sender_info (
       {/* Top Navbar */}
       <div className="w-full bg-white rounded-2xl px-6 py-4 flex items-center justify-between border border-[#eff1f4]/60 soft-shadow" id="top-navbar">
         {/* Left Side: Logo */}
-        <div className="flex items-center gap-3 select-none" id="brand-logo-container">
+        <div 
+          className="flex items-center gap-3 select-none cursor-pointer hover:opacity-80 transition-opacity" 
+          id="brand-logo-container"
+          onClick={() => setActiveTab('dashboard')}
+          title="Ke Dashboard"
+        >
           <div className="w-10 h-10 rounded-xl bg-[#121212] flex items-center justify-center text-white" id="brand-icon">
-            {/* Custom vector lines mimicking the Arsa wave logo */}
-            <svg 
-              width="24" 
-              height="24" 
-              viewBox="0 0 24 24" 
-              fill="none" 
-              stroke="currentColor" 
-              strokeWidth="2.5" 
-              strokeLinecap="round" 
+            {/* Custom vector lines mimicking the TransactFlow wave logo */}
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
               strokeLinejoin="round"
               className="text-white"
             >
@@ -124,24 +140,23 @@ CREATE TABLE IF NOT EXISTS public.sender_info (
             </svg>
           </div>
           <span className="font-bold text-lg text-[#121212] tracking-tight hidden md:inline-block">
-            Arsa Corp
+            TransactFlow
           </span>
         </div>
 
         {/* Middle Side: Nav Items */}
-        <div className="flex items-center gap-1 bg-[#f7f8fa] p-1.5 rounded-xl border border-[#eff1f4]" id="nav-tabs-container">
+        <div className="hidden md:flex items-center gap-1 bg-[#f7f8fa] p-1.5 rounded-xl border border-[#eff1f4]" id="nav-tabs-container">
           {tabs.map((tab) => {
-            const isActive = activeTab === tab.id;
+            const isActive = activeTab === tab.id || (tab.id === 'invoices' && activeTab === 'invoice-editor');
             return (
               <button
                 key={tab.id}
                 id={`tab-btn-${tab.id}`}
                 onClick={() => setActiveTab(tab.id as ActiveTab)}
-                className={`px-5 py-2 text-sm font-medium rounded-lg transition-all duration-200 outline-none ${
-                  isActive
+                className={`px-5 py-2 text-sm font-medium rounded-lg transition-all duration-200 outline-none ${isActive
                     ? 'bg-[#121212] text-white soft-shadow'
                     : 'text-[#5d6b82] hover:text-[#121212] hover:bg-white/80'
-                }`}
+                  }`}
               >
                 {tab.label}
               </button>
@@ -151,65 +166,27 @@ CREATE TABLE IF NOT EXISTS public.sender_info (
 
         {/* Right Side: Notification, Database Sync, Auth Connection */}
         <div className="flex items-center gap-3.5" id="header-actions">
-          {/* Database Connection & Sync Pillar */}
-          <button 
-            onClick={() => setIsSetupModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#f8fafc] border border-[#eff1f4] cursor-pointer hover:bg-slate-100/70 transition-colors" 
-            id="connection-status-badge"
-            title="Klik untuk melihat petunjuk setup Supabase SQL"
-          >
-            {isSupabaseActive ? (
-              <>
-                <Database size={13} className={`${isSyncing ? 'text-amber-500 animate-spin' : 'text-emerald-500'}`} />
-                <span className="text-[10px] font-bold text-slate-700">
-                  {isSyncing ? 'Syncing...' : 'Supabase Active'}
-                </span>
-              </>
-            ) : (
-              <>
-                <Database size={13} className="text-amber-550 animate-pulse" />
-                <span className="text-[10px] font-bold text-[#b45309]">Local Mode (Setup Supabase)</span>
-              </>
-            )}
-          </button>
 
-          {onManualSync && (
-            <button 
-              id="sync-now-button"
-              onClick={onManualSync}
-              disabled={isSyncing}
-              className={`w-10 h-10 rounded-xl flex items-center justify-center border border-[#eff1f4]/60 transition-all cursor-pointer relative ${
-                isSyncing 
-                  ? 'bg-[#121212] text-white' 
-                  : 'text-[#5d6b82] hover:text-[#121212] hover:bg-[#f7f8fa]'
-              }`}
-              title="Cek Sinkronisasi Data / Sinkron Sekarang"
-            >
-              <RefreshCw size={17} className={`${isSyncing ? 'animate-spin' : ''}`} />
-              {!isSyncing && isSupabaseActive && (
-                <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-emerald-500 border border-white"></span>
-              )}
-            </button>
-          )}
-          
-          <button 
+          <button
             id="hamburger-menu"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="w-10 h-10 rounded-xl flex items-center justify-center text-[#5d6b82] hover:text-[#121212] hover:bg-[#f7f8fa] border border-[#eff1f4]/60 transition-all cursor-pointer md:hidden"
           >
-            <Menu size={20} />
+            {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
 
           {/* Authentication Panel */}
           {user ? (
             <div className="flex items-center gap-2 border-l border-slate-200 pl-2">
-              <div 
-                className="w-9 h-9 rounded-xl overflow-hidden border border-[#eff1f4] cursor-pointer bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold uppercase" 
+              <div
+                className="w-9 h-9 rounded-xl overflow-hidden border border-[#eff1f4] cursor-pointer bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold uppercase hover:opacity-95 active:scale-95 transition-all"
                 id="user-profile"
-                title={`Logged in as ${user.email}`}
+                onClick={() => setActiveTab('profile')}
+                title="Kelola Profil Perusahaan Anda"
               >
                 {user.email ? user.email.slice(0, 2) : 'US'}
               </div>
-              <div className="hidden sm:flex flex-col text-left">
+              <div className="hidden sm:flex flex-col text-left cursor-pointer select-none" onClick={() => setActiveTab('profile')} title="Kelola Profil Perusahaan Anda">
                 <span className="text-[10px] font-bold text-slate-800 line-clamp-1 max-w-[80px]">
                   {user.email ? user.email.split('@')[0] : 'User'}
                 </span>
@@ -240,54 +217,91 @@ CREATE TABLE IF NOT EXISTS public.sender_info (
         </div>
       </div>
 
+      {/* Mobile Navigation Dropdown */}
+      {isMobileMenuOpen && (
+        <div className="w-full bg-white rounded-2xl p-4 border border-[#eff1f4]/60 soft-shadow md:hidden flex flex-col gap-1.5" id="mobile-nav-menu">
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.id || (tab.id === 'invoices' && activeTab === 'invoice-editor');
+            return (
+              <button
+                key={tab.id}
+                id={`mobile-tab-btn-${tab.id}`}
+                onClick={() => {
+                  setActiveTab(tab.id as ActiveTab);
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full px-4 py-2.5 text-left text-sm font-semibold rounded-xl transition-all duration-200 outline-none ${
+                  isActive
+                    ? 'bg-[#121212] text-white soft-shadow'
+                    : 'text-[#5d6b82] hover:text-[#121212] hover:bg-[#f7f8fa]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Dynamic Subheader - only visible or customized for invoices view */}
-      {activeTab === 'invoices' && (
+      {activeTab === 'invoice-editor' && (
         <div className="w-full flex flex-col md:flex-row md:items-center justify-between gap-4" id="invoice-subheader">
           <div className="flex flex-col gap-1">
-            <button 
-              id="back-btn"
-              onClick={() => setActiveTab('dashboard')}
-              className="flex items-center gap-1.5 text-sm font-medium text-[#5d6b82] hover:text-[#121212] transition-colors self-start cursor-pointer"
-            >
-              <ArrowLeft size={16} />
-              <span>Back to home</span>
-            </button>
-            <h1 className="text-3xl font-bold tracking-tight text-[#121212] mt-1" id="page-title">
-              Create New Invoice
+            <h1 className="text-3xl font-bold tracking-tight text-[#121212]" id="page-title">
+              {documentType === 'quotation' && 'Buat Penawaran Barang'}
+              {documentType === 'dp' && 'Buat Invoice DP (Down Payment)'}
+              {documentType === 'pelunasan' && 'Buat Invoice Pelunasan'}
+              {documentType === 'receipt' && 'Buat Nota Barang (Receipt)'}
+              {(!documentType || documentType === 'invoice') && 'Buat Invoice Baru'}
             </h1>
           </div>
 
-          <div className="flex items-center gap-3" id="invoice-action-buttons">
+          <div className="flex flex-row items-center gap-2 w-full md:w-auto" id="invoice-action-buttons">
+            {onCreateNew && (
+              <button
+                id="new-document-btn"
+                onClick={onCreateNew}
+                className="flex-1 md:flex-none justify-center px-3 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-[#303846] bg-white border border-[#dddfdf] rounded-xl hover:bg-[#fcfdfd] transition-all hover:border-[#b9baba] active:scale-95 flex items-center gap-1 sm:gap-2 cursor-pointer"
+                title="Buat Dokumen Baru dari Awal"
+              >
+                <Plus size={14} className="text-slate-600 shrink-0" />
+                <span className="hidden sm:inline">New Document</span>
+                <span className="sm:hidden">New</span>
+              </button>
+            )}
+
             <button
               id="save-draft-btn"
               onClick={onSaveDraft}
               disabled={isSavingDraft}
-              className="px-5 py-2.5 text-sm font-semibold text-[#303846] bg-white border border-[#dddfdf] rounded-xl hover:bg-[#fcfdfd] transition-all hover:border-[#b9baba] active:scale-95 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              className="flex-1 md:flex-none justify-center px-3 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-[#303846] bg-white border border-[#dddfdf] rounded-xl hover:bg-[#fcfdfd] transition-all hover:border-[#b9baba] active:scale-95 flex items-center gap-1 sm:gap-2 cursor-pointer disabled:opacity-50"
             >
               {isSavingDraft ? (
                 <div className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-800 animate-spin"></div>
               ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-slate-600">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-slate-600 shrink-0">
                   <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
                   <polyline points="17 21 17 13 7 13 7 21" />
                   <polyline points="7 3 7 8 15 8" />
                 </svg>
               )}
-              <span>Save as Draft</span>
+              <span className="hidden sm:inline">Save as Draft</span>
+              <span className="sm:hidden">Draft</span>
             </button>
 
             <button
               id="send-invoice-btn"
               onClick={onSendInvoice}
               disabled={isSendingInvoice}
-              className="px-6 py-2.5 text-sm font-semibold text-white bg-[#121212] rounded-xl hover:bg-black transition-all active:scale-95 flex items-center gap-2 cursor-pointer soft-shadow disabled:opacity-50"
+              className="flex-1 md:flex-none justify-center px-3 py-2 sm:px-6 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-[#121212] rounded-xl hover:bg-black transition-all active:scale-95 flex items-center gap-1 sm:gap-2 cursor-pointer soft-shadow disabled:opacity-50"
             >
               {isSendingInvoice ? (
                 <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
               ) : (
-                <Send size={16} />
+                <Send size={14} className="shrink-0" />
               )}
-              <span>Send Invoice</span>
+              <span className="hidden sm:inline">Send Invoice</span>
+              <span className="sm:hidden">Send</span>
             </button>
           </div>
         </div>
@@ -295,12 +309,12 @@ CREATE TABLE IF NOT EXISTS public.sender_info (
 
       {/* Supabase Database Setup & SQL Editor Assistant Modal */}
       {isSetupModalOpen && (
-        <div 
+        <div
           id="supabase-setup-modal-overlay"
           className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md animate-fade-in text-[#121212]"
           onClick={() => setIsSetupModalOpen(false)}
         >
-          <div 
+          <div
             id="supabase-setup-content"
             className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[85vh] animate-scale-up"
             onClick={(e) => e.stopPropagation()}
@@ -313,7 +327,7 @@ CREATE TABLE IF NOT EXISTS public.sender_info (
                 </div>
                 <div>
                   <h3 className="text-sm font-extrabold text-[#121212]">
-                    Setup Database Supabase Studio Arsa
+                    Setup Database Supabase TransactFlow
                   </h3>
                   <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
                     {isSupabaseActive ? 'Status: Koneksi Supabase Aktif' : 'Status: Local Storage Mode'}
@@ -364,7 +378,7 @@ CREATE TABLE IF NOT EXISTS public.sender_info (
 
             {/* Modal Footer */}
             <div className="border-t border-slate-100 px-6 py-4 bg-slate-50/50 flex items-center justify-between gap-3 text-[10px] text-slate-400 font-bold font-mono">
-              <span>Studio Arsa Digital • Supabase Engine</span>
+              <span>TransactFlow • Supabase Engine</span>
               <button
                 onClick={() => setIsSetupModalOpen(false)}
                 className="px-4 py-2 bg-[#121212] hover:bg-black text-white rounded-xl text-xs font-bold transition-all cursor-pointer"

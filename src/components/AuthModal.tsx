@@ -29,8 +29,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       setTimeout(() => {
         const mockUser = {
           id: 'demo-user-id',
-          email: email || 'admin@arsa.co',
-          user_metadata: { full_name: 'Studio Arsa Admin' }
+          email: email || 'admin@transactflow.com',
+          user_metadata: { full_name: 'TransactFlow Admin' }
         };
         onAuthSuccess(mockUser);
         setSuccessMsg('Koneksi Demo Lokal Berhasil!');
@@ -79,8 +79,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     setTimeout(() => {
       const demoUser = {
         id: 'mock-bypassed-user-id',
-        email: 'demo.developer@arsa.co',
-        user_metadata: { full_name: 'Arsa Demo Admin' }
+        email: 'demo.developer@transactflow.com',
+        user_metadata: { full_name: 'TransactFlow Demo Admin' }
       };
       onAuthSuccess(demoUser);
       setSuccessMsg('Sukses: Masuk sebagai Demo Admin!');
@@ -118,7 +118,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
               <Sparkles size={22} className="text-emerald-400" />
             </div>
             <h3 className="text-lg font-extrabold tracking-tight">
-              {isSignUp ? 'Buat Akun Studio Arsa' : 'Masuk ke Studio Arsa'}
+              {isSignUp ? 'Buat Akun TransactFlow' : 'Masuk ke TransactFlow'}
             </h3>
             <p className="text-xs text-white/70 max-w-[280px]">
               {isSupabaseActive 
@@ -153,7 +153,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
               <input
                 type="email"
                 required
-                placeholder="admin@studioarsa.com"
+                placeholder="admin@transactflow.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs text-[#121212] focus:border-black focus:ring-1 focus:ring-black outline-none bg-slate-50/50"

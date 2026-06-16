@@ -5,6 +5,7 @@ export interface InvoiceItem {
   unit: string;
   cost: number;
   amount: number;
+  rowNumber?: string;
 }
 
 export interface SenderInfo {
@@ -15,6 +16,8 @@ export interface SenderInfo {
   bankName: string;
   bankAccountName: string;
   bankAccountNumber: string;
+  logoUrl?: string;
+  signatureUrl?: string;
 }
 
 export interface Invoice {
@@ -34,6 +37,13 @@ export interface Invoice {
   subtotal: number;
   taxAmount: number;
   total: number;
+  documentType?: 'invoice' | 'quotation' | 'dp' | 'pelunasan' | 'receipt';
+  dpPercentage?: number;
+  dpPaidAmount?: number;
+  paymentMethod?: 'cash' | 'transfer' | 'card' | 'other';
+  customerPhone?: string;
+  customerEmail?: string;
+  signatureName?: string;
 }
 
 export interface Customer {
@@ -52,4 +62,4 @@ export interface Service {
   defaultCost: number;
 }
 
-export type ActiveTab = 'dashboard' | 'customers' | 'services' | 'invoices' | 'reports';
+export type ActiveTab = 'dashboard' | 'drafts' | 'customers' | 'services' | 'invoices' | 'reports' | 'profile' | 'invoice-editor';

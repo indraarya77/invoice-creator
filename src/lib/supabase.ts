@@ -112,7 +112,14 @@ function mapInvoiceToDb(invoice: Invoice) {
     subtotal: invoice.subtotal,
     tax_amount: invoice.taxAmount,
     total: invoice.total,
-    items: JSON.stringify(invoice.items || [])
+    items: JSON.stringify(invoice.items || []),
+    document_type: invoice.documentType || 'invoice',
+    dp_percentage: invoice.dpPercentage || 0,
+    dp_paid_amount: invoice.dpPaidAmount || 0,
+    payment_method: invoice.paymentMethod || 'transfer',
+    customer_phone: invoice.customerPhone || '',
+    customer_email: invoice.customerEmail || '',
+    signature_name: invoice.signatureName || ''
   };
 }
 
@@ -141,7 +148,14 @@ function mapInvoiceFromDb(dbInv: any): Invoice {
     taxAmount: Number(dbInv.tax_amount || 0),
     total: Number(dbInv.total || 0),
     createdAt: dbInv.created_at || new Date().toISOString(),
-    items: parsedItems
+    items: parsedItems,
+    documentType: (dbInv.document_type || 'invoice') as 'invoice' | 'quotation' | 'dp' | 'pelunasan' | 'receipt',
+    dpPercentage: Number(dbInv.dp_percentage || 0),
+    dpPaidAmount: Number(dbInv.dp_paid_amount || 0),
+    paymentMethod: (dbInv.payment_method || 'transfer') as 'cash' | 'transfer' | 'card' | 'other',
+    customerPhone: dbInv.customer_phone || '',
+    customerEmail: dbInv.customer_email || '',
+    signatureName: dbInv.signature_name || ''
   };
 }
 
@@ -194,7 +208,9 @@ function mapSenderToDb(sender: SenderInfo) {
     phone: sender.phone || '',
     bank_name: sender.bankName || '',
     bank_account_name: sender.bankAccountName || '',
-    bank_account_number: sender.bankAccountNumber || ''
+    bank_account_number: sender.bankAccountNumber || '',
+    logo_url: sender.logoUrl || '',
+    signature_url: sender.signatureUrl || ''
   };
 }
 
@@ -206,7 +222,9 @@ function mapSenderFromDb(dbSender: any): SenderInfo {
     phone: dbSender.phone || '',
     bankName: dbSender.bank_name || '',
     bankAccountName: dbSender.bank_account_name || '',
-    bankAccountNumber: dbSender.bank_account_number || ''
+    bankAccountNumber: dbSender.bank_account_number || '',
+    logoUrl: dbSender.logo_url || '',
+    signatureUrl: dbSender.signature_url || ''
   };
 }
 
@@ -217,9 +235,13 @@ function mapSenderFromDb(dbSender: any): SenderInfo {
 export async function fetchInvoicesDb(): Promise<Invoice[]> {
   if (!supabase) return [];
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
     const { data, error } = await supabase
       .from('invoices')
       .select('*')
+      .eq('user_id', user.id)
       .order('invoice_number', { ascending: false });
     
     if (error) throw error;
@@ -233,10 +255,13 @@ export async function fetchInvoicesDb(): Promise<Invoice[]> {
 export async function saveInvoiceDb(invoice: Invoice): Promise<void> {
   if (!supabase) return;
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const mapped = mapInvoiceToDb(invoice);
     const { error } = await supabase
       .from('invoices')
-      .upsert(mapped);
+      .upsert({ ...mapped, user_id: user.id });
     
     if (error) throw error;
   } catch (err) {
@@ -248,10 +273,14 @@ export async function saveInvoiceDb(invoice: Invoice): Promise<void> {
 export async function deleteInvoiceDb(id: string): Promise<void> {
   if (!supabase) return;
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const { error } = await supabase
       .from('invoices')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', user.id);
     
     if (error) throw error;
   } catch (err) {
@@ -264,9 +293,13 @@ export async function deleteInvoiceDb(id: string): Promise<void> {
 export async function fetchCustomersDb(): Promise<Customer[]> {
   if (!supabase) return [];
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
     const { data, error } = await supabase
       .from('customers')
       .select('*')
+      .eq('user_id', user.id)
       .order('name');
     
     if (error) throw error;
@@ -280,10 +313,13 @@ export async function fetchCustomersDb(): Promise<Customer[]> {
 export async function saveCustomerDb(customer: Customer): Promise<void> {
   if (!supabase) return;
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const mapped = mapCustomerToDb(customer);
     const { error } = await supabase
       .from('customers')
-      .upsert(mapped);
+      .upsert({ ...mapped, user_id: user.id });
     
     if (error) throw error;
   } catch (err) {
@@ -295,10 +331,14 @@ export async function saveCustomerDb(customer: Customer): Promise<void> {
 export async function deleteCustomerDb(id: string): Promise<void> {
   if (!supabase) return;
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const { error } = await supabase
       .from('customers')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', user.id);
     
     if (error) throw error;
   } catch (err) {
@@ -311,9 +351,13 @@ export async function deleteCustomerDb(id: string): Promise<void> {
 export async function fetchServicesDb(): Promise<Service[]> {
   if (!supabase) return [];
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
     const { data, error } = await supabase
       .from('services')
       .select('*')
+      .eq('user_id', user.id)
       .order('name');
     
     if (error) throw error;
@@ -327,10 +371,13 @@ export async function fetchServicesDb(): Promise<Service[]> {
 export async function saveServiceDb(service: Service): Promise<void> {
   if (!supabase) return;
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const mapped = mapServiceToDb(service);
     const { error } = await supabase
       .from('services')
-      .upsert(mapped);
+      .upsert({ ...mapped, user_id: user.id });
     
     if (error) throw error;
   } catch (err) {
@@ -342,10 +389,14 @@ export async function saveServiceDb(service: Service): Promise<void> {
 export async function deleteServiceDb(id: string): Promise<void> {
   if (!supabase) return;
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const { error } = await supabase
       .from('services')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', user.id);
     
     if (error) throw error;
   } catch (err) {
@@ -358,10 +409,13 @@ export async function deleteServiceDb(id: string): Promise<void> {
 export async function fetchSenderInfoDb(): Promise<SenderInfo | null> {
   if (!supabase) return null;
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
     const { data, error } = await supabase
       .from('sender_info')
       .select('*')
-      .eq('id', 'default')
+      .eq('id', user.id)
       .maybeSingle();
     
     if (error) throw error;
@@ -375,10 +429,13 @@ export async function fetchSenderInfoDb(): Promise<SenderInfo | null> {
 export async function saveSenderInfoDb(sender: SenderInfo): Promise<void> {
   if (!supabase) return;
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const mapped = mapSenderToDb(sender);
     const { error } = await supabase
       .from('sender_info')
-      .upsert(mapped);
+      .upsert({ ...mapped, id: user.id, user_id: user.id });
     
     if (error) throw error;
   } catch (err) {

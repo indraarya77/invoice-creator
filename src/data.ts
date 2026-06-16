@@ -1,12 +1,12 @@
 import { Invoice, SenderInfo, Customer, Service } from './types';
 
 export const defaultSenderInfo: SenderInfo = {
-  companyName: 'Studio Arsa Digital',
+  companyName: 'TransactFlow',
   address: 'Jl. Jambu No 5, Semanding, Sumbersekar, Kec. Dau, Kabupaten Malang, Jawa Timur 65151',
-  email: 'hello@studioarsa.com',
+  email: 'hello@transactflow.com',
   phone: '+62 812 3456 7890',
   bankName: 'Bank Central Asia (BCA)',
-  bankAccountName: 'Studio Arsa Digital',
+  bankAccountName: 'TransactFlow',
   bankAccountNumber: '123 456 7890'
 };
 

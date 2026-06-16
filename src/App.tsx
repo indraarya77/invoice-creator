@@ -10,6 +10,9 @@ import CustomersView from './components/CustomersView';
 import ServicesView from './components/ServicesView';
 import ReportsView from './components/ReportsView';
 import AuthModal from './components/AuthModal';
+import InvoicesView from './components/InvoicesView';
+import LoginPage from './components/LoginPage';
+import ProfileView from './components/ProfileView';
 
 import { Invoice, Customer, Service, ActiveTab, SenderInfo } from './types';
 import { 
@@ -37,54 +40,31 @@ import {
 
 export default function App() {
   // Navigation active tab
-  const [activeTab, setActiveTab] = useState<ActiveTab>('invoices');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
 
   // Firebase auth user
   const [user, setUser] = useState<any>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Core Persistence States
-  const [invoices, setInvoices] = useState<Invoice[]>(() => {
-    const saved = localStorage.getItem('arsa-invoices');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { console.error(e); }
-    }
-    return [defaultInvoice];
-  });
+  // Helper to create a fresh invoice with a unique UUID for the user
+  const createInitialInvoice = (): Invoice => {
+    const freshId = uuid();
+    return {
+      ...defaultInvoice,
+      id: freshId,
+      invoiceNumber: 'INV-2026-001',
+      createdAt: new Date().toISOString(),
+      items: defaultInvoice.items.map(item => ({ ...item, id: uuid() }))
+    };
+  };
 
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    const saved = localStorage.getItem('arsa-customers');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { console.error(e); }
-    }
-    return initialCustomers;
-  });
-
-  const [services, setServices] = useState<Service[]>(() => {
-    const saved = localStorage.getItem('arsa-services');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { console.error(e); }
-    }
-    return initialServices;
-  });
-
-  const [senderInfo, setSenderInfo] = useState<SenderInfo>(() => {
-    const saved = localStorage.getItem('arsa-sender-info');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { console.error(e); }
-    }
-    return defaultSenderInfo;
-  });
-
-  // Current Active Form State
-  const [activeInvoice, setActiveInvoice] = useState<Invoice>(() => {
-    const savedForm = localStorage.getItem('arsa-current-form');
-    if (savedForm) {
-      try { return JSON.parse(savedForm); } catch (e) { console.error(e); }
-    }
-    // Deep copy defaultInvoice to prevent mutating global constant
-    return JSON.parse(JSON.stringify(defaultInvoice));
-  });
+  // Core Persistence States
+  const [invoices, setInvoices] = useState<Invoice[]>(() => [defaultInvoice]);
+  const [customers, setCustomers] = useState<Customer[]>(() => initialCustomers);
+  const [services, setServices] = useState<Service[]>(() => initialServices);
+  const [senderInfo, setSenderInfo] = useState<SenderInfo>(() => defaultSenderInfo);
+  const [activeInvoice, setActiveInvoice] = useState<Invoice>(() => JSON.parse(JSON.stringify(defaultInvoice)));
 
   // Temporary UI Feedback States
   const [isSaving, setIsSaving] = useState(false);
@@ -100,10 +80,19 @@ export default function App() {
   const [syncStatusText, setSyncStatusText] = useState('');
   const [isDbError, setIsDbError] = useState(false);
 
-  // Authenticate & Fetch Cloud Data on startup or login
+  // User State Load Check
+  const [hasLoadedUserState, setHasLoadedUserState] = useState(false);
+
+  // 1. Authenticate & tracks auth state listener
   useEffect(() => {
     if (!isSupabaseActive || !supabase) {
-      setHasLoadedCloudData(true);
+      // Offline mode default mockup user
+      const mockUser = {
+        id: 'demo-user-id',
+        email: 'admin@transactflow.com',
+        user_metadata: { full_name: 'TransactFlow Admin' }
+      };
+      setUser(mockUser);
       return;
     }
 
@@ -113,40 +102,156 @@ export default function App() {
       setUser(currentUser);
     });
 
-    // In Supabase, if keys are set, we synchronize all documents silently
-    const loadSupabaseData = async () => {
+    return () => {
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  // 2. Load User-Specific Data from LocalStorage when User resolves/changes
+  useEffect(() => {
+    if (!user) {
+      setHasLoadedUserState(false);
+      setHasLoadedCloudData(false);
+      return;
+    }
+
+    const loadAccountData = () => {
+      const savedInvoices = localStorage.getItem(`transactflow-invoices-${user.id}`);
+      const savedCustomers = localStorage.getItem(`transactflow-customers-${user.id}`);
+      const savedServices = localStorage.getItem(`transactflow-services-${user.id}`);
+      const savedSender = localStorage.getItem(`transactflow-sender-info-${user.id}`);
+      const savedForm = localStorage.getItem(`transactflow-current-form-${user.id}`);
+
+      let userInvoices: Invoice[];
+      if (savedInvoices) {
+        try {
+          userInvoices = JSON.parse(savedInvoices);
+        } catch (e) {
+          console.error(e);
+          userInvoices = [createInitialInvoice()];
+        }
+      } else {
+        userInvoices = [createInitialInvoice()];
+      }
+      setInvoices(userInvoices);
+
+      if (savedCustomers) {
+        try { setCustomers(JSON.parse(savedCustomers)); } catch (e) { console.error(e); setCustomers(initialCustomers); }
+      } else {
+        setCustomers(initialCustomers);
+      }
+
+      if (savedServices) {
+        try { setServices(JSON.parse(savedServices)); } catch (e) { console.error(e); setServices(initialServices); }
+      } else {
+        setServices(initialServices);
+      }
+
+      if (savedSender) {
+        try { setSenderInfo(JSON.parse(savedSender)); } catch (e) { console.error(e); setSenderInfo(defaultSenderInfo); }
+      } else {
+        setSenderInfo(defaultSenderInfo);
+      }
+
+      if (savedForm) {
+        try { setActiveInvoice(JSON.parse(savedForm)); } catch (e) { console.error(e); setActiveInvoice(userInvoices[0]); }
+      } else {
+        setActiveInvoice(userInvoices[0]);
+      }
+
+      setHasLoadedUserState(true);
+    };
+
+    loadAccountData();
+  }, [user]);
+
+  // 3. Silent background synchronization once user state has loaded
+  useEffect(() => {
+    if (!hasLoadedUserState || !user || !isSupabaseActive || !supabase) {
+      if (hasLoadedUserState) {
+        setHasLoadedCloudData(true);
+      }
+      return;
+    }
+
+    const syncCloudData = async () => {
       setIsSyncing(true);
       try {
         const cloudInvoices = await fetchInvoicesDb();
-        if (cloudInvoices && cloudInvoices.length > 0) {
-          setInvoices(cloudInvoices);
-        }
         const cloudCustomers = await fetchCustomersDb();
-        if (cloudCustomers && cloudCustomers.length > 0) {
-          setCustomers(cloudCustomers);
-        }
         const cloudServices = await fetchServicesDb();
-        if (cloudServices && cloudServices.length > 0) {
-          setServices(cloudServices);
-        }
         const cloudSender = await fetchSenderInfoDb();
+
+        // 1. Merge Invoices
+        setInvoices((currentLocalInvoices) => {
+          const mergedInvoices = [...cloudInvoices];
+          // Upload local invoices that don't exist on the cloud yet
+          currentLocalInvoices.forEach(async (localInv) => {
+            if (!cloudInvoices.some(c => c.id === localInv.id)) {
+              await saveInvoiceDb(localInv).catch(e => console.error('Auto save invoice err:', e));
+            }
+          });
+          currentLocalInvoices.forEach(l => {
+            if (!mergedInvoices.some(c => c.id === l.id)) {
+              mergedInvoices.push(l);
+            }
+          });
+          return mergedInvoices;
+        });
+
+        // 2. Merge Customers
+        setCustomers((currentLocalCustomers) => {
+          const mergedCustomers = [...cloudCustomers];
+          currentLocalCustomers.forEach(async (localCust) => {
+            if (!cloudCustomers.some(c => c.id === localCust.id)) {
+              await saveCustomerDb(localCust).catch(e => console.error('Auto save customer err:', e));
+            }
+          });
+          currentLocalCustomers.forEach(l => {
+            if (!mergedCustomers.some(c => c.id === l.id)) {
+              mergedCustomers.push(l);
+            }
+          });
+          return mergedCustomers;
+        });
+
+        // 3. Merge Services
+        setServices((currentLocalServices) => {
+          const mergedServices = [...cloudServices];
+          currentLocalServices.forEach(async (localSvc) => {
+            if (!cloudServices.some(c => c.id === localSvc.id)) {
+              await saveServiceDb(localSvc).catch(e => console.error('Auto save service err:', e));
+            }
+          });
+          currentLocalServices.forEach(l => {
+            if (!mergedServices.some(c => c.id === l.id)) {
+              mergedServices.push(l);
+            }
+          });
+          return mergedServices;
+        });
+
+        // 4. Merge Sender Info
         if (cloudSender) {
           setSenderInfo(cloudSender);
+        } else {
+          setSenderInfo((currentSender) => {
+            saveSenderInfoDb(currentSender).catch(e => console.error('Auto save sender err:', e));
+            return currentSender;
+          });
         }
+
+        console.log('Silently synchronized user data with Supabase successfully.');
       } catch (error) {
-        console.error('Failed to sync Supabase documents: ', error);
+        console.error('Failed to silently auto-sync user documents on startup:', error);
       } finally {
         setIsSyncing(false);
         setHasLoadedCloudData(true);
       }
     };
 
-    loadSupabaseData();
-
-    return () => {
-      subscription?.unsubscribe();
-    };
-  }, []);
+    syncCloudData();
+  }, [hasLoadedUserState, user]);
 
   // Sync state mutation handlers
   const handleLogin = () => {
@@ -162,45 +267,12 @@ export default function App() {
       }
     }
     setUser(null);
-    // Fallback local storage state
-    const savedInvoices = localStorage.getItem('arsa-invoices');
-    if (savedInvoices) {
-      setInvoices(JSON.parse(savedInvoices));
-    } else {
-      setInvoices([defaultInvoice]);
-    }
+    setHasLoadedUserState(false);
+    setHasLoadedCloudData(false);
   };
 
-  const handleAuthSuccess = async (authenticatedUser: any) => {
+  const handleAuthSuccess = (authenticatedUser: any) => {
     setUser(authenticatedUser);
-    
-    // When logged in, fetch cloud data if active
-    if (isSupabaseActive && supabase) {
-      setIsSyncing(true);
-      try {
-        const cloudInvoices = await fetchInvoicesDb();
-        if (cloudInvoices && cloudInvoices.length > 0) {
-          setInvoices(cloudInvoices);
-        }
-        const cloudCustomers = await fetchCustomersDb();
-        if (cloudCustomers && cloudCustomers.length > 0) {
-          setCustomers(cloudCustomers);
-        }
-        const cloudServices = await fetchServicesDb();
-        if (cloudServices && cloudServices.length > 0) {
-          setServices(cloudServices);
-        }
-        const cloudSender = await fetchSenderInfoDb();
-        if (cloudSender) {
-          setSenderInfo(cloudSender);
-        }
-      } catch (error) {
-        console.error('Failed to load cloud user credentials:', error);
-      } finally {
-        setIsSyncing(false);
-        setHasLoadedCloudData(true);
-      }
-    }
   };
 
   const handleManualSync = async () => {
@@ -348,33 +420,79 @@ export default function App() {
 
   // Sync state back to local storage (so offline editing always persists)
   useEffect(() => {
-    localStorage.setItem('arsa-invoices', JSON.stringify(invoices));
-  }, [invoices]);
-
-  useEffect(() => {
-    localStorage.setItem('arsa-customers', JSON.stringify(customers));
-  }, [customers]);
-
-  useEffect(() => {
-    localStorage.setItem('arsa-services', JSON.stringify(services));
-  }, [services]);
-
-  useEffect(() => {
-    localStorage.setItem('arsa-sender-info', JSON.stringify(senderInfo));
-    if (isSupabaseActive && hasLoadedCloudData) {
-      saveSenderInfoDb(senderInfo).catch(e => console.error('Save sender err:', e));
+    if (user && hasLoadedUserState) {
+      localStorage.setItem(`transactflow-invoices-${user.id}`, JSON.stringify(invoices));
     }
-  }, [senderInfo]);
+  }, [invoices, user, hasLoadedUserState]);
 
   useEffect(() => {
-    localStorage.setItem('arsa-current-form', JSON.stringify(activeInvoice));
-  }, [activeInvoice]);
+    if (user && hasLoadedUserState) {
+      localStorage.setItem(`transactflow-customers-${user.id}`, JSON.stringify(customers));
+    }
+  }, [customers, user, hasLoadedUserState]);
+
+  useEffect(() => {
+    if (user && hasLoadedUserState) {
+      localStorage.setItem(`transactflow-services-${user.id}`, JSON.stringify(services));
+    }
+  }, [services, user, hasLoadedUserState]);
+
+  useEffect(() => {
+    if (user && hasLoadedUserState) {
+      localStorage.setItem(`transactflow-sender-info-${user.id}`, JSON.stringify(senderInfo));
+      if (isSupabaseActive && hasLoadedCloudData) {
+        saveSenderInfoDb(senderInfo).catch(e => console.error('Save sender err:', e));
+      }
+    }
+  }, [senderInfo, user, hasLoadedUserState, hasLoadedCloudData]);
+
+  useEffect(() => {
+    if (user && hasLoadedUserState) {
+      localStorage.setItem(`transactflow-current-form-${user.id}`, JSON.stringify(activeInvoice));
+    }
+  }, [activeInvoice, user, hasLoadedUserState]);
+
+  // Automatically autosave the active invoice to Supabase and update invoices list when it changes
+  useEffect(() => {
+    if (!isSupabaseActive || !hasLoadedCloudData) return;
+    
+    const delayDebounce = setTimeout(async () => {
+      try {
+        setInvoices((prev) => {
+          const idx = prev.findIndex((inv) => inv.id === activeInvoice.id);
+          const updated = [...prev];
+          if (idx > -1) {
+            if (JSON.stringify(updated[idx]) !== JSON.stringify(activeInvoice)) {
+              updated[idx] = activeInvoice;
+              saveInvoiceDb(activeInvoice).catch(e => console.error('Autosave error:', e));
+            }
+            return updated;
+          } else {
+            // Only autosave new invoices once they have some content to avoid polluting with empty rows
+            if (activeInvoice.customerName || activeInvoice.items.some(i => i.name)) {
+              const nextList = [activeInvoice, ...prev];
+              saveInvoiceDb(activeInvoice).catch(e => console.error('Autosave error:', e));
+              return nextList;
+            }
+          }
+          return prev;
+        });
+      } catch (err) {
+        console.error('Autosave active invoice draft failed:', err);
+      }
+    }, 1000); // 1-second debounce to prevent spamming Supabase API on every single keystroke!
+
+    return () => clearTimeout(delayDebounce);
+  }, [activeInvoice, hasLoadedCloudData]);
 
   // Derived Values calculation on active invoice state changes
   const computedTotals = calculateInvoiceTotals(
     activeInvoice.items,
     activeInvoice.discount,
-    activeInvoice.taxRate
+    activeInvoice.taxRate,
+    activeInvoice.documentType,
+    activeInvoice.dpPercentage,
+    activeInvoice.dpPaidAmount
   );
 
   const invoiceWithTotals: Invoice = {
@@ -386,7 +504,9 @@ export default function App() {
 
   // Pre-fill fields with default mockup values in 1 single-click
   const handleLoadMockupData = () => {
-    setActiveInvoice(JSON.parse(JSON.stringify(defaultInvoice)));
+    const mock = JSON.parse(JSON.stringify(defaultInvoice));
+    mock.id = uuid(); // Assign a fresh unique ID to prevent overwriting templates
+    setActiveInvoice(mock);
     setHasUnsavedChanges(true);
   };
 
@@ -394,10 +514,18 @@ export default function App() {
   const handleSaveDraft = () => {
     setIsSaving(true);
     setTimeout(() => {
+      let finalInvoice = { ...invoiceWithTotals };
+      // Prevent saving with static template ID 'v1'
+      if (finalInvoice.id === 'v1') {
+        const freshId = uuid();
+        finalInvoice.id = freshId;
+        setActiveInvoice(prev => ({ ...prev, id: freshId }));
+      }
+
       syncSetInvoices((prev) => {
         // If invoice already exists, update it. Otherwise add new.
-        const idx = prev.findIndex((inv) => inv.id === invoiceWithTotals.id);
-        const savedInvoice: Invoice = { ...invoiceWithTotals, status: 'draft' };
+        const idx = prev.findIndex((inv) => inv.id === finalInvoice.id);
+        const savedInvoice: Invoice = { ...finalInvoice, status: 'draft' };
         if (idx > -1) {
           const updated = [...prev];
           updated[idx] = savedInvoice;
@@ -418,9 +546,17 @@ export default function App() {
   const handleSendInvoice = () => {
     setIsSending(true);
     setTimeout(() => {
+      let finalInvoice = { ...invoiceWithTotals };
+      // Prevent saving with static template ID 'v1'
+      if (finalInvoice.id === 'v1') {
+        const freshId = uuid();
+        finalInvoice.id = freshId;
+        setActiveInvoice(prev => ({ ...prev, id: freshId }));
+      }
+
       syncSetInvoices((prev) => {
-        const idx = prev.findIndex((inv) => inv.id === invoiceWithTotals.id);
-        const sentInvoice: Invoice = { ...invoiceWithTotals, status: 'sent' };
+        const idx = prev.findIndex((inv) => inv.id === finalInvoice.id);
+        const sentInvoice: Invoice = { ...finalInvoice, status: 'sent' };
         if (idx > -1) {
           const updated = [...prev];
           updated[idx] = sentInvoice;
@@ -440,7 +576,7 @@ export default function App() {
     const found = invoices.find((inv) => inv.id === invoiceId);
     if (found) {
       setActiveInvoice(JSON.parse(JSON.stringify(found)));
-      setActiveTab('invoices');
+      setActiveTab('invoice-editor');
       setHasUnsavedChanges(false);
     }
   };
@@ -489,11 +625,50 @@ export default function App() {
       subtotal: 0,
       taxAmount: 0,
       total: 0,
+      documentType: 'invoice',
     };
 
     setActiveInvoice(newDoc);
-    setActiveTab('invoices');
+    setActiveTab('invoice-editor');
     setHasUnsavedChanges(true);
+  };
+
+  const handleSelectDocumentType = (type: 'invoice' | 'quotation' | 'dp' | 'pelunasan' | 'receipt') => {
+    setActiveInvoice((prev) => {
+      const nextIndex = invoices.length + 1;
+      const padding = String(nextIndex).padStart(3, '0');
+      let prefix = 'INV';
+      let term = prev.paymentTerms;
+      let notes = prev.notes;
+
+      if (type === 'quotation') {
+        prefix = 'QT';
+        term = 'Validity 14 Days';
+        notes = 'This quotation is valid for 14 days. Prices are subject to change after the validity period.';
+      } else if (type === 'dp') {
+        prefix = 'DP';
+        term = 'Due on Receipt';
+        notes = 'Down Payment Invoice. Work/production will commence upon receipt of down payment.';
+      } else if (type === 'pelunasan') {
+        prefix = 'PL';
+        notes = 'Final Invoice (Pelunasan) for project milestones completed. Thank you for your trust.';
+      } else if (type === 'receipt') {
+        prefix = 'N';
+        term = 'Cash';
+        notes = 'Official receipt of payment. Thank you for your payment.';
+      }
+
+      return {
+        ...prev,
+        documentType: type,
+        invoiceNumber: `${prefix}-2026-${padding}`,
+        paymentTerms: term,
+        notes: notes,
+        status: type === 'receipt' ? 'paid' : 'draft',
+        dpPercentage: type === 'dp' ? 30 : 0,
+        dpPaidAmount: 0,
+      };
+    });
   };
 
   // Tab workflow: Invoice Customer directly from directory
@@ -503,7 +678,7 @@ export default function App() {
       customerName: customer.name,
       billingAddress: customer.billingAddress,
     }));
-    setActiveTab('invoices');
+    setActiveTab('invoice-editor');
   };
 
   // Tab workflow: Add standard item from catalog service directly to form
@@ -527,11 +702,15 @@ export default function App() {
         items: hasOnlyOneEmptyItem ? [newItem] : [...prev.items, newItem],
       };
     });
-    setActiveTab('invoices');
+    setActiveTab('invoice-editor');
   };
 
+  if (!user) {
+    return <LoginPage onAuthSuccess={handleAuthSuccess} />;
+  }
+
   return (
-    <div className="min-h-screen bg-[#eaecf0] py-6 px-4 sm:px-8 flex items-center justify-center font-sans relative antialiased" id="main-scaffold">
+    <div className="min-h-screen bg-[#eaecf0] py-6 px-4 sm:px-8 flex items-start justify-center font-sans relative antialiased" id="main-scaffold">
       {/* Absolute floating toast for Save feedback */}
       <AnimatePresence>
         {showDraftToast && (
@@ -569,6 +748,7 @@ export default function App() {
         <Header
           activeTab={activeTab}
           setActiveTab={setActiveTab}
+          onCreateNew={handleCreateNewInvoice}
           onSaveDraft={handleSaveDraft}
           onSendInvoice={handleSendInvoice}
           isSavingDraft={isSaving}
@@ -579,6 +759,7 @@ export default function App() {
           isSupabaseActive={isSupabaseActive}
           isSyncing={isSyncing}
           onManualSync={handleManualSync}
+          documentType={activeInvoice.documentType}
         />
 
         {/* View Grid Switcher */}
@@ -598,6 +779,27 @@ export default function App() {
                   onDeleteInvoice={handleDeleteInvoice}
                   onSetInvoiceStatus={handleSetInvoiceStatus}
                   onCreateNewInvoice={handleCreateNewInvoice}
+                  onViewDrafts={() => setActiveTab('invoices')}
+                />
+              </motion.div>
+            )}
+
+            {activeTab === 'invoices' && (
+              <motion.div
+                key="invoices"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <InvoicesView
+                  invoices={invoices}
+                  sender={senderInfo}
+                  customers={customers}
+                  onSelectInvoice={handleSelectInvoice}
+                  onDeleteInvoice={handleDeleteInvoice}
+                  onCreateNewInvoice={handleCreateNewInvoice}
+                  onSetInvoiceStatus={handleSetInvoiceStatus}
                 />
               </motion.div>
             )}
@@ -634,9 +836,9 @@ export default function App() {
               </motion.div>
             )}
 
-            {activeTab === 'invoices' && (
+            {activeTab === 'invoice-editor' && (
               <motion.div
-                key="invoices"
+                key="invoice-editor"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
@@ -650,12 +852,14 @@ export default function App() {
                   customers={customers}
                   invoices={invoices}
                   onSelectInvoice={handleSelectInvoice}
+                  onSelectDocumentType={handleSelectDocumentType}
                 />
 
                 {/* Right side Dynamic PDF Preview */}
                 <InvoicePreview
                   invoice={invoiceWithTotals}
                   sender={senderInfo}
+                  customers={customers}
                 />
               </motion.div>
             )}
@@ -671,6 +875,22 @@ export default function App() {
                 <ReportsView
                   invoices={invoices}
                   customers={customers}
+                />
+              </motion.div>
+            )}
+
+            {activeTab === 'profile' && (
+              <motion.div
+                key="profile"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <ProfileView
+                  sender={senderInfo}
+                  setSender={setSenderInfo}
+                  isSupabaseActive={isSupabaseActive}
                 />
               </motion.div>
             )}
@@ -784,11 +1004,14 @@ export default function App() {
       </AnimatePresence>
 
       {/* Authentic Supabase + Demo Authentication Portal Modal */}
+      {/* Authentic Supabase + Demo Authentication Portal Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         onAuthSuccess={handleAuthSuccess}
       />
+
+
     </div>
   );
 }

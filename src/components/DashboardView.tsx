@@ -8,6 +8,7 @@ interface DashboardViewProps {
   onDeleteInvoice: (invoiceId: string) => void;
   onSetInvoiceStatus: (invoiceId: string, status: 'draft' | 'sent' | 'paid') => void;
   onCreateNewInvoice: () => void;
+  onViewDrafts?: () => void;
 }
 
 export default function DashboardView({
@@ -16,6 +17,7 @@ export default function DashboardView({
   onDeleteInvoice,
   onSetInvoiceStatus,
   onCreateNewInvoice,
+  onViewDrafts,
 }: DashboardViewProps) {
   // Aggregate stats
   const totalRevenue = invoices
@@ -81,12 +83,16 @@ export default function DashboardView({
         </div>
 
         {/* Drafts Card */}
-        <div className="bg-white rounded-2xl p-5 border border-[#eff1f4]/60 soft-shadow flex items-start justify-between">
+        <div 
+          onClick={onViewDrafts}
+          className="bg-white rounded-2xl p-5 border border-[#eff1f4]/60 soft-shadow flex items-start justify-between cursor-pointer hover:border-amber-400 hover:shadow-md transition-all active:scale-98 select-none"
+          title="Klik untuk melihat semua Draft Invoice"
+        >
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-bold text-[#8695ac] uppercase tracking-wider">Active Drafts</span>
             <span className="text-2xl font-black text-[#121212] font-mono leading-none">{formatIDR(draftAmount)}</span>
-            <span className="text-xs font-medium text-[#5d6b82] mt-3 block">
-              {draftCount} draft{draftCount !== 1 ? 's' : ''} being edited
+            <span className="text-xs font-medium text-amber-600 mt-3 block font-bold hover:underline">
+              Lihat {draftCount} draft &rarr;
             </span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100/50">
@@ -140,22 +146,27 @@ export default function DashboardView({
               const isCurrent = data.name === 'May';
               return (
                 <div key={idx} className="flex flex-col items-center gap-2 group flex-1" id={`chart-bar-col-${data.name}`}>
-                  {/* Tooltip on hover */}
-                  <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity bg-[#121212] text-white text-[10px] font-bold py-1 px-2 rounded-lg -translate-y-12 shadow-lg z-20 pointer-events-none font-mono">
-                    {formatIDR(data.amount)}
+                  
+                  {/* Bar Wrapper with fixed height to allow percentage child layout calculation */}
+                  <div className="h-32 w-full flex items-end justify-center relative">
+                    {/* Tooltip on hover */}
+                    <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity bg-[#121212] text-white text-[10px] font-bold py-1 px-2 rounded-lg -translate-y-12 shadow-lg z-20 pointer-events-none font-mono">
+                      {formatIDR(data.amount)}
+                    </div>
+                    
+                    {/* The bar element */}
+                    <div 
+                      style={{ height: `${Math.max(4, pct)}%` }}
+                      className={`w-8 sm:w-12 rounded-t-lg transition-all duration-300 ${
+                        isCurrent 
+                          ? 'bg-[#121212] hover:bg-black shadow-sm' 
+                          : data.amount === 0 
+                            ? 'bg-slate-100 border border-dashed border-slate-200'
+                            : 'bg-[#8695ac]/20 hover:bg-[#8695ac]/40'
+                      }`}
+                    ></div>
                   </div>
                   
-                  {/* The bar element */}
-                  <div 
-                    style={{ height: `${Math.max(4, pct)}%` }}
-                    className={`w-10 sm:w-14 rounded-t-lg transition-all duration-300 ${
-                      isCurrent 
-                        ? 'bg-[#121212] hover:bg-black shadow-sm' 
-                        : data.amount === 0 
-                          ? 'bg-slate-100 border border-dashed border-slate-200'
-                          : 'bg-[#8695ac]/20 hover:bg-[#8695ac]/40'
-                    }`}
-                  ></div>
                   <span className="text-xs font-bold text-[#5d6b82] tracking-wider">{data.name}</span>
                 </div>
               );
@@ -192,7 +203,7 @@ export default function DashboardView({
             <p className="text-xs text-[#5d6b82]">Select to view/edit, delete, or mark status</p>
           </div>
           <span className="text-xs font-bold text-[#5d6b82] bg-[#f7f8fa] border border-[#eff1f4] px-2.5 py-1 rounded-lg">
-            {invoices.length} Active Records
+            {invoices.filter((inv) => inv.status !== 'draft').length} Active Records
           </span>
         </div>
 
@@ -209,7 +220,7 @@ export default function DashboardView({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#f7f8fa]">
-              {invoices.map((inv) => (
+              {invoices.filter((inv) => inv.status !== 'draft').map((inv) => (
                 <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors group text-xs text-[#303846]" id={`invoice-row-${inv.id}`}>
                   {/* Number */}
                   <td className="px-4 py-3.5 font-bold text-[#121212]">

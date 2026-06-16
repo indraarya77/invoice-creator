@@ -62,12 +62,28 @@ export function uuid(): string {
 /**
  * Calculates subtotals, tax amount, and total
  */
-export function calculateInvoiceTotals(items: InvoiceItem[], discount: number, taxRate: number) {
+export function calculateInvoiceTotals(
+  items: InvoiceItem[],
+  discount: number,
+  taxRate: number,
+  documentType?: 'invoice' | 'quotation' | 'dp' | 'pelunasan' | 'receipt',
+  dpPercentage?: number,
+  dpPaidAmount?: number
+) {
   const subtotal = items.reduce((sum, item) => sum + (item.qty * item.cost), 0);
   const discountVal = discount || 0;
   const taxableAmount = Math.max(0, subtotal - discountVal);
   const taxAmount = Math.round(taxableAmount * ((taxRate || 0) / 100));
-  const total = taxableAmount + taxAmount;
+  const baseTotal = taxableAmount + taxAmount;
+  
+  let total = baseTotal;
+  if (documentType === 'dp') {
+    const pct = dpPercentage || 0;
+    total = Math.round(baseTotal * (pct / 100));
+  } else if (documentType === 'pelunasan') {
+    const paid = dpPaidAmount || 0;
+    total = Math.max(0, baseTotal - paid);
+  }
   
   return {
     subtotal,
